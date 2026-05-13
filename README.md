@@ -1,4 +1,4 @@
-#Welcome to BookQuest website's code#
+#Welcome to BookQuest website's code
 
 This is the code connected to: https//:bookquestgame.vercel.app
 
