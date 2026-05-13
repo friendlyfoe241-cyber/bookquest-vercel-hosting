@@ -89,8 +89,8 @@
   * {
     @apply border-border;
   }
-  html, body {
-    overscroll-behavior: none;
+  html {
+    overscroll-behavior-x: none;
     overflow-x: hidden;
   }
   body {
@@ -101,7 +101,10 @@
     letter-spacing: 0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    touch-action: pan-y;
+    overscroll-behavior-x: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 
