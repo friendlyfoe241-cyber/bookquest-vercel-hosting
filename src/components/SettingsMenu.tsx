@@ -1,15 +1,18 @@
 import { useApp } from '@/contexts/AppContext';
 import { books } from '@/data/books';
-import { ACCENT_COLORS } from '@/types/book';
+import { ACCENT_COLORS, AgeGroup } from '@/types/book';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
-import { Sun, Moon, X, LogOut, UserPlus, MessageCircle, Send, Shield, Zap, User, BookOpen as BookOpenIcon } from 'lucide-react';
+import { Sun, Moon, X, LogOut, UserPlus, MessageCircle, Send, Shield, Zap, User, BookOpen as BookOpenIcon, Code2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { supabase } from '@/integrations/supabase/client';
 import { useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { toast } from 'sonner';
+
+const DevPanel = lazy(() => import('@/components/DevPanel'));
+const DEV_CODE = '241';
 
 interface SettingsMenuProps {
   open: boolean;
@@ -22,6 +25,12 @@ const READING_LEVELS = [
   { key: 'experienced' as const, label: '🔥 Experienced', desc: 'Advanced content' },
 ];
 
+const AGE_GROUPS: { key: AgeGroup; label: string; desc: string }[] = [
+  { key: '3-8', label: '🧒 Ages 5–8', desc: 'Early readers' },
+  { key: '8-11', label: '📖 Ages 8–11', desc: 'Growing readers' },
+  { key: '12-17+', label: '📚 Ages 12–17+', desc: 'Teen & young adult' },
+];
+
 const SettingsMenu = ({ open, onOpenChange }: SettingsMenuProps) => {
   const { settings, updateSettings, progress, updateProgress, undislikeBook, getUserLevel } = useApp();
   const navigate = useNavigate();
@@ -29,6 +38,11 @@ const SettingsMenu = ({ open, onOpenChange }: SettingsMenuProps) => {
   const [supportMessage, setSupportMessage] = useState('');
   const [supportEmail, setSupportEmail] = useState('');
   const [supportSent, setSupportSent] = useState(false);
+  const [devUnlocked, setDevUnlocked] = useState(() => localStorage.getItem('bq-dev') === '1');
+  const [devCode, setDevCode] = useState('');
+  const [devExpanded, setDevExpanded] = useState(false);
+  const [tapCount, setTapCount] = useState(0);
+  const [showCodeInput, setShowCodeInput] = useState(false);
   const dislikedBooks = books.filter(b => progress.dislikedBooks.includes(b.id));
   const userLevel = getUserLevel();
 
@@ -47,6 +61,15 @@ const SettingsMenu = ({ open, onOpenChange }: SettingsMenuProps) => {
       await supabase.from('profiles').update({ reading_level: level }).eq('user_id', authUser.id);
     }
     toast.success(`Reading level set to ${level}`);
+  };
+
+  const handleAgeGroupChange = async (ageGroup: AgeGroup) => {
+    updateSettings({ ageGroup });
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (authUser) {
+      await supabase.from('profiles').update({ age_group: ageGroup } as any).eq('user_id', authUser.id);
+    }
+    toast.success(`Age group set to ${ageGroup}`);
   };
 
   const handleLogout = async () => {
@@ -120,6 +143,22 @@ const SettingsMenu = ({ open, onOpenChange }: SettingsMenuProps) => {
                   <div>
                     <span className="font-medium text-sm">{rl.label}</span>
                     <p className="text-xs text-muted-foreground">{rl.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Age Group */}
+          <div>
+            <h3 className="font-semibold mb-3">Age Group</h3>
+            <div className="flex flex-col gap-2">
+              {AGE_GROUPS.map(ag => (
+                <button key={ag.key} onClick={() => handleAgeGroupChange(ag.key)}
+                  className={`flex items-center justify-between p-3 rounded-xl border-2 transition-all text-left ${settings.ageGroup === ag.key ? 'border-primary bg-primary/10' : 'border-border'}`}>
+                  <div>
+                    <span className="font-medium text-sm">{ag.label}</span>
+                    <p className="text-xs text-muted-foreground">{ag.desc}</p>
                   </div>
                 </button>
               ))}
@@ -206,7 +245,75 @@ const SettingsMenu = ({ open, onOpenChange }: SettingsMenuProps) => {
             )}
           </div>
 
-          {/* Profile & Tutorial */}
+          {/* Hidden Dev Mode */}
+          <div className="pt-2 border-t border-border">
+            {devUnlocked ? (
+              <div>
+                <button onClick={() => setDevExpanded(!devExpanded)}
+                  className="flex items-center gap-2 w-full text-left font-semibold mb-3">
+                  <Code2 className="w-4 h-4 text-primary" />
+                  <span>Developer Mode</span>
+                  <span className="text-xs text-muted-foreground ml-auto">{devExpanded ? '▲' : '▼'}</span>
+                </button>
+                {devExpanded && (
+                  <Suspense fallback={<div className="text-center text-sm text-muted-foreground py-4">Loading...</div>}>
+                    <DevPanel />
+                  </Suspense>
+                )}
+              </div>
+            ) : (
+              <>
+                {!showCodeInput ? (
+                  <button
+                    onClick={() => {
+                      const next = tapCount + 1;
+                      setTapCount(next);
+                      if (next >= 5) {
+                        setShowCodeInput(true);
+                        setTapCount(0);
+                      }
+                    }}
+                    className="w-full text-xs text-muted-foreground/30 py-1 text-center select-none"
+                  >
+                    v1.0.0
+                  </button>
+                ) : (
+                  <div className="flex gap-2">
+                    <Input
+                      value={devCode}
+                      onChange={e => setDevCode(e.target.value)}
+                      placeholder="Enter code"
+                      type="password"
+                      className="rounded-xl text-sm flex-1"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && devCode === DEV_CODE) {
+                          setDevUnlocked(true);
+                          setDevExpanded(true);
+                          localStorage.setItem('bq-dev', '1');
+                          toast.success('Developer Mode unlocked!');
+                        } else if (e.key === 'Enter') {
+                          toast.error('Invalid code');
+                          setDevCode('');
+                        }
+                      }}
+                    />
+                    <Button size="sm" className="rounded-xl" onClick={() => {
+                      if (devCode === DEV_CODE) {
+                        setDevUnlocked(true);
+                        setDevExpanded(true);
+                        localStorage.setItem('bq-dev', '1');
+                        toast.success('Developer Mode unlocked!');
+                      } else {
+                        toast.error('Invalid code');
+                        setDevCode('');
+                      }
+                    }}>Unlock</Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
           <div className="pt-2 border-t border-border space-y-2">
             {user && (
               <Button variant="outline" className="w-full rounded-xl" onClick={() => { onOpenChange(false); navigate('/profile-setup'); }}>
@@ -221,6 +328,21 @@ const SettingsMenu = ({ open, onOpenChange }: SettingsMenuProps) => {
               <BookOpenIcon className="w-4 h-4 mr-2" /> Replay Tutorial
             </Button>
           </div>
+
+          {/* Guest warning */}
+          {!user && (
+            <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25">
+              <div className="flex items-start gap-2">
+                <Shield className="w-4 h-4 text-amber-500 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">Guest Account</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Your data is saved locally on this browser only. Sign in to save your progress permanently across all devices.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Account */}
           <div className="pt-2 border-t border-border space-y-3">

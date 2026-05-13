@@ -48,9 +48,32 @@ const defaultSettings: AppSettings = {
   darkMode: false,
   accentColor: `${ACCENT_COLORS[1].hue} ${ACCENT_COLORS[1].saturation}% ${ACCENT_COLORS[1].lightness}%`,
   onboarded: false,
+  ageGroup: '12-17+',
 };
 
 const AppContext = createContext<AppContextType | null>(null);
+
+function readStoredJson<T>(key: string): Partial<T> | null {
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved) return null;
+
+    const parsed = JSON.parse(saved);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error(`Invalid persisted value for ${key}`);
+    }
+
+    return parsed as Partial<T>;
+  } catch (error) {
+    console.error(`Failed to read persisted app state for ${key}:`, error);
+    try {
+      localStorage.removeItem(key);
+    } catch (removeError) {
+      console.error(`Failed to clear corrupted app state for ${key}:`, removeError);
+    }
+    return null;
+  }
+}
 
 async function syncBookToDb(userId: string, bookId: string, updates: Record<string, unknown>) {
   const { data: existing } = await supabase
@@ -66,8 +89,38 @@ async function syncBookToDb(userId: string, bookId: string, updates: Record<stri
   }
 }
 
+// For safe fields (display_name, theme_id, avatar_id, etc.)
 async function syncProfileToDb(userId: string, updates: Record<string, unknown>) {
-  await supabase.from('profiles').update(updates).eq('user_id', userId);
+  const safeFields = ['display_name', 'avatar_id', 'theme_id', 'reading_level', 'leaderboard_opt_in', 'school_name', 'class_id', 'active_pet_id'];
+  const safeUpdates: Record<string, unknown> = {};
+  const economyUpdates: Record<string, unknown> = {};
+  
+  for (const [key, value] of Object.entries(updates)) {
+    if (safeFields.includes(key)) {
+      safeUpdates[key] = value;
+    } else {
+      economyUpdates[key] = value;
+    }
+  }
+  
+  if (Object.keys(safeUpdates).length > 0) {
+    await supabase.from('profiles').update(safeUpdates).eq('user_id', userId);
+  }
+  
+  if (Object.keys(economyUpdates).length > 0) {
+    // Map to RPC parameter names
+    const rpcParams: Record<string, unknown> = { p_user_id: userId };
+    const fieldMap: Record<string, string> = {
+      coins: 'p_coins', xp: 'p_xp', level: 'p_level', streak: 'p_streak',
+      streak_savers: 'p_streak_savers', total_quiz_points: 'p_total_quiz_points',
+      best_quiz_streak: 'p_best_quiz_streak', quiz_streak: 'p_quiz_streak',
+      last_read_date: 'p_last_read_date',
+    };
+    for (const [key, value] of Object.entries(economyUpdates)) {
+      if (fieldMap[key]) rpcParams[fieldMap[key]] = value;
+    }
+    await supabase.rpc('update_profile_economy', rpcParams as any);
+  }
 }
 
 async function getAuthUserId(): Promise<string | null> {
@@ -77,18 +130,91 @@ async function getAuthUserId(): Promise<string | null> {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState<UserProgress>(() => {
-    const saved = localStorage.getItem('bookquest-progress');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return { ...defaultProgress, ...parsed };
-    }
-    return defaultProgress;
+    const parsed = readStoredJson<UserProgress>('bookquest-progress');
+    return parsed ? { ...defaultProgress, ...parsed } : defaultProgress;
   });
 
   const [settings, setSettings] = useState<AppSettings>(() => {
-    const saved = localStorage.getItem('bookquest-settings');
-    return saved ? JSON.parse(saved) : defaultSettings;
+    const parsed = readStoredJson<AppSettings>('bookquest-settings');
+    return parsed ? { ...defaultSettings, ...parsed } : defaultSettings;
   });
+
+  // Restore user data from database on auth
+  useEffect(() => {
+    const restoreFromDb = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Load profile
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('user_id', user.id)
+        .single();
+
+      if (profile) {
+        setProgress(prev => ({
+          ...prev,
+          level: profile.level ?? prev.level,
+          streak: profile.streak ?? prev.streak,
+          lastReadDate: profile.last_read_date ?? prev.lastReadDate,
+          readingLevel: (profile.reading_level as any) ?? prev.readingLevel,
+          quizStreak: profile.quiz_streak ?? prev.quizStreak,
+          bestQuizStreak: profile.best_quiz_streak ?? prev.bestQuizStreak,
+          totalQuizPoints: profile.total_quiz_points ?? prev.totalQuizPoints,
+          streakSavers: profile.streak_savers ?? prev.streakSavers,
+        }));
+        setSettings(prev => ({
+          ...prev,
+          onboarded: true,
+          ageGroup: (profile.age_group as any) ?? prev.ageGroup,
+          darkMode: (profile as any).dark_mode ?? prev.darkMode,
+          accentColor: (profile as any).accent_color ?? prev.accentColor,
+        }));
+      }
+
+      // Load user_books
+      const { data: userBooks } = await supabase
+        .from('user_books')
+        .select('book_id, status, quiz_score, rating, qte_score')
+        .eq('user_id', user.id);
+
+      if (userBooks && userBooks.length > 0) {
+        const liked: string[] = [];
+        const disliked: string[] = [];
+        const read: string[] = [];
+        const quizScores: Record<string, number> = {};
+        const bookRatings: Record<string, number> = {};
+        const qteScores: Record<string, number> = {};
+
+        for (const ub of userBooks) {
+          if (ub.status === 'liked') liked.push(ub.book_id);
+          if (ub.status === 'disliked') disliked.push(ub.book_id);
+          if (ub.status === 'read') read.push(ub.book_id);
+          if (ub.quiz_score != null) quizScores[ub.book_id] = ub.quiz_score;
+          if (ub.rating != null) bookRatings[ub.book_id] = ub.rating;
+          if (ub.qte_score != null) qteScores[ub.book_id] = ub.qte_score;
+        }
+
+        setProgress(prev => ({
+          ...prev,
+          likedBooks: liked.length > 0 ? liked : prev.likedBooks,
+          dislikedBooks: disliked.length > 0 ? disliked : prev.dislikedBooks,
+          booksRead: read.length > 0 ? read : prev.booksRead,
+          quizScores: Object.keys(quizScores).length > 0 ? { ...prev.quizScores, ...quizScores } : prev.quizScores,
+          bookRatings: Object.keys(bookRatings).length > 0 ? { ...prev.bookRatings, ...bookRatings } : prev.bookRatings,
+          qteScores: Object.keys(qteScores).length > 0 ? { ...prev.qteScores, ...qteScores } : prev.qteScores,
+        }));
+      }
+    };
+
+    restoreFromDb();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_IN') restoreFromDb();
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('bookquest-progress', JSON.stringify(progress));
@@ -103,8 +229,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateProgress = (updates: Partial<UserProgress>) =>
     setProgress(prev => ({ ...prev, ...updates }));
 
-  const updateSettings = (updates: Partial<AppSettings>) =>
+  const updateSettings = (updates: Partial<AppSettings>) => {
     setSettings(prev => ({ ...prev, ...updates }));
+    // Persist display settings to database
+    getAuthUserId().then(uid => {
+      if (!uid) return;
+      const dbUpdates: Record<string, unknown> = {};
+      if (updates.darkMode !== undefined) dbUpdates.dark_mode = updates.darkMode;
+      if (updates.accentColor !== undefined) dbUpdates.accent_color = updates.accentColor;
+      if (updates.ageGroup !== undefined) dbUpdates.age_group = updates.ageGroup;
+      if (Object.keys(dbUpdates).length > 0) {
+        supabase.from('profiles').update(dbUpdates).eq('user_id', uid).then(() => {});
+      }
+    });
+  };
 
   const likeBook = useCallback((bookId: string) => {
     setProgress(prev => ({

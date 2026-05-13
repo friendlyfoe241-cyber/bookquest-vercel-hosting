@@ -1,13 +1,19 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
-import { ACCENT_COLORS } from '@/types/book';
+import { ACCENT_COLORS, AgeGroup } from '@/types/book';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sun, Moon, BookOpen, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import LibraryBackground from '@/components/LibraryBackground';
 
-type Step = 'welcome' | 'theme' | 'level';
+type Step = 'welcome' | 'theme' | 'level' | 'age';
+
+const AGE_OPTIONS: { value: AgeGroup; label: string; emoji: string; desc: string }[] = [
+  { value: '3-8', label: '5–8', emoji: '🧒', desc: 'Early readers' },
+  { value: '8-11', label: '8–11', emoji: '📖', desc: 'Growing readers' },
+  { value: '12-17+', label: '12–17+', emoji: '📚', desc: 'Teen & young adult' },
+];
 
 const Welcome = () => {
   const [step, setStep] = useState<Step>('welcome');
@@ -19,7 +25,11 @@ const Welcome = () => {
 
   const handleLevelPick = (level: 'beginner' | 'reader') => {
     updateProgress({ readingLevel: level });
-    updateSettings({ onboarded: true });
+    setStep('age');
+  };
+
+  const handleAgePick = (ageGroup: AgeGroup) => {
+    updateSettings({ ageGroup, onboarded: true });
     navigate('/discover');
   };
 
@@ -27,7 +37,6 @@ const Welcome = () => {
     <div className="min-h-screen relative overflow-hidden bg-background">
       <LibraryBackground />
 
-      {/* Content */}
       <div className="relative z-10 min-h-screen flex flex-col md:flex-row">
         <AnimatePresence mode="wait">
           {step === 'welcome' && (
@@ -38,7 +47,6 @@ const Welcome = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0, x: -100 }}
             >
-              {/* Left — Logo */}
               <div className="flex-1 flex flex-col items-center justify-center p-8">
                 <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: 0.2 }}>
                   <div className="text-8xl mb-4">📚</div>
@@ -61,7 +69,6 @@ const Welcome = () => {
                 </motion.p>
               </div>
 
-              {/* Right — Actions card */}
               <div className="flex-1 flex flex-col items-center justify-center p-8 gap-4">
                 <motion.div
                   className="w-full max-w-xs flex flex-col gap-3 bg-background/90 dark:bg-background/85 backdrop-blur-xl rounded-3xl p-6 shadow-2xl border border-border/50"
@@ -162,6 +169,37 @@ const Welcome = () => {
                     <span className="font-bold text-lg text-foreground">I Love Reading!</span>
                     <span className="text-sm text-muted-foreground text-center">I read books often</span>
                   </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {step === 'age' && (
+            <motion.div
+              key="age"
+              className="flex-1 flex flex-col items-center justify-center p-8 min-h-screen w-full"
+              initial={{ opacity: 0, x: 100 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -100 }}
+            >
+              <div className="bg-background/90 dark:bg-background/85 backdrop-blur-xl rounded-3xl p-8 shadow-2xl border border-border/50 max-w-md w-full text-center">
+                <h2 className="font-display text-3xl mb-2 text-foreground">How old are you?</h2>
+                <p className="text-muted-foreground mb-8">We'll show you books perfect for your age</p>
+
+                <div className="flex flex-col gap-4">
+                  {AGE_OPTIONS.map(opt => (
+                    <button
+                      key={opt.value}
+                      onClick={() => handleAgePick(opt.value)}
+                      className="p-6 rounded-3xl border-2 border-border hover:border-primary hover:bg-primary/5 transition-all flex items-center gap-4"
+                    >
+                      <span className="text-4xl">{opt.emoji}</span>
+                      <div className="text-left">
+                        <span className="font-bold text-lg text-foreground">{opt.label}</span>
+                        <p className="text-sm text-muted-foreground">{opt.desc}</p>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
             </motion.div>

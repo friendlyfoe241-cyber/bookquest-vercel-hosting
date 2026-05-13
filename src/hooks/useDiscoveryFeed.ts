@@ -9,9 +9,14 @@ interface FeedItem {
   feed_date: string;
 }
 
+function getCurrentDateKey(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+}
+
 function getCurrentHourKey(): string {
   const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}T${String(now.getUTCHours()).padStart(2, '0')}`;
+  return `${getCurrentDateKey()}T${String(now.getUTCHours()).padStart(2, '0')}`;
 }
 
 export function useDiscoveryFeed() {
@@ -33,6 +38,8 @@ export function useDiscoveryFeed() {
     return () => clearInterval(interval);
   }, [hourKey]);
 
+  const dateKey = getCurrentDateKey();
+
   const query = useQuery({
     queryKey: ['discovery-feed', userId, hourKey],
     queryFn: async (): Promise<FeedItem[]> => {
@@ -41,14 +48,18 @@ export function useDiscoveryFeed() {
         .from('discovery_feed')
         .select('book_id, position, shown, feed_date')
         .eq('user_id', userId)
-        .eq('feed_date', hourKey)
+        .eq('feed_date', dateKey)
         .order('position');
 
-      if (error) throw error;
+      if (error) {
+        console.warn('Discovery feed query failed, falling back to local books', error.message);
+        return [];
+      }
       return (data as FeedItem[]) || [];
     },
     enabled: !!userId,
     staleTime: 5 * 60_000,
+    retry: 1,
   });
 
   const getNextRefreshTime = (): string => {

@@ -1,6 +1,6 @@
 import { Book } from '@/types/book';
 import { bookCovers } from '@/data/bookCovers';
-import { Badge } from '@/components/ui/badge';
+import GenreBadge from '@/components/GenreBadge';
 import { Button } from '@/components/ui/button';
 import { Heart, ThumbsDown, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -45,7 +45,7 @@ const BookPreviewModal = ({ book, onClose }: BookPreviewModalProps) => {
               <div className="text-4xl mb-3 text-center">{book.coverEmoji}</div>
             )}
             <h3 className="font-display text-xl text-center mb-1">{book.title}</h3>
-            <Badge variant="secondary" className="mx-auto block w-fit mb-3">{book.genre}</Badge>
+            <GenreBadge genre={book.genre} className="mx-auto block w-fit mb-3" />
             <p className="text-sm text-muted-foreground text-center mb-4">{book.summary}</p>
 
             {/* Rating display */}

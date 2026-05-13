@@ -55,8 +55,36 @@ export type Database = {
           },
         ]
       }
+      bookmarks: {
+        Row: {
+          book_id: string
+          created_at: string
+          id: string
+          label: string | null
+          page_number: number
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          created_at?: string
+          id?: string
+          label?: string | null
+          page_number: number
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          created_at?: string
+          id?: string
+          label?: string | null
+          page_number?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       books: {
         Row: {
+          age_group: string
           batch: number
           cover_color: string
           cover_emoji: string
@@ -70,6 +98,7 @@ export type Database = {
           title: string
         }
         Insert: {
+          age_group?: string
           batch?: number
           cover_color: string
           cover_emoji: string
@@ -83,6 +112,7 @@ export type Database = {
           title: string
         }
         Update: {
+          age_group?: string
           batch?: number
           cover_color?: string
           cover_emoji?: string
@@ -136,6 +166,36 @@ export type Database = {
           title?: string
           type?: string
           xp_reward?: number
+        }
+        Relationships: []
+      }
+      daily_login_claims: {
+        Row: {
+          claim_date: string
+          coins_awarded: number
+          consecutive_day: number
+          created_at: string
+          id: string
+          special_reward: string | null
+          user_id: string
+        }
+        Insert: {
+          claim_date?: string
+          coins_awarded?: number
+          consecutive_day?: number
+          created_at?: string
+          id?: string
+          special_reward?: string | null
+          user_id: string
+        }
+        Update: {
+          claim_date?: string
+          coins_awarded?: number
+          consecutive_day?: number
+          created_at?: string
+          id?: string
+          special_reward?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -204,6 +264,36 @@ export type Database = {
         }
         Relationships: []
       }
+      highlights: {
+        Row: {
+          book_id: string
+          color: string
+          created_at: string
+          highlighted_text: string
+          id: string
+          page_number: number
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          color?: string
+          created_at?: string
+          highlighted_text: string
+          id?: string
+          page_number: number
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          color?: string
+          created_at?: string
+          highlighted_text?: string
+          id?: string
+          page_number?: number
+          user_id?: string
+        }
+        Relationships: []
+      }
       imported_books: {
         Row: {
           content_text: string
@@ -248,17 +338,22 @@ export type Database = {
       }
       profiles: {
         Row: {
+          accent_color: string
           active_pet_id: string | null
+          age_group: string
           avatar_id: string
           best_quiz_streak: number
           class_id: string | null
           coins: number
           created_at: string
+          dark_mode: boolean
           display_name: string | null
           id: string
+          last_login_claim: string | null
           last_read_date: string | null
           leaderboard_opt_in: boolean
           level: number
+          login_streak: number
           quiz_streak: number
           reading_level: string
           school_name: string | null
@@ -271,17 +366,22 @@ export type Database = {
           xp: number
         }
         Insert: {
+          accent_color?: string
           active_pet_id?: string | null
+          age_group?: string
           avatar_id?: string
           best_quiz_streak?: number
           class_id?: string | null
           coins?: number
           created_at?: string
+          dark_mode?: boolean
           display_name?: string | null
           id?: string
+          last_login_claim?: string | null
           last_read_date?: string | null
           leaderboard_opt_in?: boolean
           level?: number
+          login_streak?: number
           quiz_streak?: number
           reading_level?: string
           school_name?: string | null
@@ -294,17 +394,22 @@ export type Database = {
           xp?: number
         }
         Update: {
+          accent_color?: string
           active_pet_id?: string | null
+          age_group?: string
           avatar_id?: string
           best_quiz_streak?: number
           class_id?: string | null
           coins?: number
           created_at?: string
+          dark_mode?: boolean
           display_name?: string | null
           id?: string
+          last_login_claim?: string | null
           last_read_date?: string | null
           leaderboard_opt_in?: boolean
           level?: number
+          login_streak?: number
           quiz_streak?: number
           reading_level?: string
           school_name?: string | null
@@ -315,6 +420,45 @@ export type Database = {
           updated_at?: string
           user_id?: string
           xp?: number
+        }
+        Relationships: []
+      }
+      reading_progress: {
+        Row: {
+          book_id: string
+          completed: boolean
+          created_at: string
+          current_page: number
+          font_size: number
+          id: string
+          last_read_at: string
+          total_pages: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          book_id: string
+          completed?: boolean
+          created_at?: string
+          current_page?: number
+          font_size?: number
+          id?: string
+          last_read_at?: string
+          total_pages?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          book_id?: string
+          completed?: boolean
+          created_at?: string
+          current_page?: number
+          font_size?: number
+          id?: string
+          last_read_at?: string
+          total_pages?: number
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -384,6 +528,7 @@ export type Database = {
       user_books: {
         Row: {
           book_id: string
+          coins_earned: number
           created_at: string
           discovered_at: string | null
           id: string
@@ -397,6 +542,7 @@ export type Database = {
         }
         Insert: {
           book_id: string
+          coins_earned?: number
           created_at?: string
           discovered_at?: string | null
           id?: string
@@ -410,6 +556,7 @@ export type Database = {
         }
         Update: {
           book_id?: string
+          coins_earned?: number
           created_at?: string
           discovered_at?: string | null
           id?: string
@@ -542,6 +689,27 @@ export type Database = {
       }
     }
     Functions: {
+      award_reading_coins: {
+        Args: {
+          p_book_id: string
+          p_page_number: number
+          p_total_pages: number
+          p_user_id: string
+        }
+        Returns: number
+      }
+      get_friend_profiles: {
+        Args: { p_user_id: string }
+        Returns: {
+          avatar_id: string
+          display_name: string
+          leaderboard_opt_in: boolean
+          level: number
+          streak: number
+          user_id: string
+          xp: number
+        }[]
+      }
       get_leaderboard: {
         Args: {
           requesting_user_id?: string
@@ -566,6 +734,21 @@ export type Database = {
           display_name: string
           user_id: string
         }[]
+      }
+      update_profile_economy: {
+        Args: {
+          p_best_quiz_streak?: number
+          p_coins?: number
+          p_last_read_date?: string
+          p_level?: number
+          p_quiz_streak?: number
+          p_streak?: number
+          p_streak_savers?: number
+          p_total_quiz_points?: number
+          p_user_id: string
+          p_xp?: number
+        }
+        Returns: undefined
       }
     }
     Enums: {

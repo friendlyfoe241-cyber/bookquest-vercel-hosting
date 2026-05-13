@@ -81,6 +81,62 @@ import act2p17 from '@/assets/pages/act-2-p17.jpg';
 import act2p18 from '@/assets/pages/act-2-p18.jpg';
 import act2p19 from '@/assets/pages/act-2-p19.jpg';
 
+// Public domain classics
+import pridep0 from '@/assets/pages/classic-pride-p0.jpg';
+import pridep3 from '@/assets/pages/classic-pride-p3.jpg';
+import sherlockp0 from '@/assets/pages/classic-sherlock-p0.jpg';
+import sherlockp3 from '@/assets/pages/classic-sherlock-p3.jpg';
+import draculap0 from '@/assets/pages/classic-dracula-p0.jpg';
+import draculap4 from '@/assets/pages/classic-dracula-p4.jpg';
+import frankensteinp0 from '@/assets/pages/classic-frankenstein-p0.jpg';
+import frankensteinp5 from '@/assets/pages/classic-frankenstein-p5.jpg';
+import dorianp0 from '@/assets/pages/classic-dorian-p0.jpg';
+import dorianp5 from '@/assets/pages/classic-dorian-p5.jpg';
+import alicep0 from '@/assets/pages/classic-alice-p0.jpg';
+import alicep4 from '@/assets/pages/classic-alice-p4.jpg';
+import timemachinep0 from '@/assets/pages/classic-timemachine-p0.jpg';
+import timemachinep2 from '@/assets/pages/classic-timemachine-p2.jpg';
+
+// New expanded book illustrations
+import pridep10 from '@/assets/pages/classic-pride-p10.jpg';
+import draculap10 from '@/assets/pages/classic-dracula-p10.jpg';
+import frankensteinp10 from '@/assets/pages/classic-frankenstein-p10.jpg';
+import dorianp10 from '@/assets/pages/classic-dorian-p10.jpg';
+import timemachinep10 from '@/assets/pages/classic-timemachine-p10.jpg';
+import pdOdysseyP10 from '@/assets/pages/pd-odyssey-p10.jpg';
+
+// Short stories
+import short1p0 from '@/assets/pages/short-1-p0.jpg';
+import short1p5 from '@/assets/pages/short-1-p5.jpg';
+import short2p0 from '@/assets/pages/short-2-p0.jpg';
+import short3p0 from '@/assets/pages/short-3-p0.jpg';
+import short4p0 from '@/assets/pages/short-4-p0.jpg';
+import short5p0 from '@/assets/pages/short-5-p0.jpg';
+import short6p0 from '@/assets/pages/short-6-p0.jpg';
+
+// Expanded library page illustrations
+import pdAsamanP0 from '@/assets/pages/pd-asaman-p0.jpg';
+import pdMeditationsP0 from '@/assets/pages/pd-meditations-p0.jpg';
+import pdArtofwarP0 from '@/assets/pages/pd-artofwar-p0.jpg';
+import pdOdysseyP0 from '@/assets/pages/pd-odyssey-p0.jpg';
+import pdNorseP0 from '@/assets/pages/pd-norse-p0.jpg';
+import pdAnansiP0 from '@/assets/pages/pd-anansi-p0.jpg';
+import pd1001nightsP0 from '@/assets/pages/pd-1001nights-p0.jpg';
+import pdRamayanaP0 from '@/assets/pages/pd-ramayana-p0.jpg';
+import pdTreasureislandP0 from '@/assets/pages/pd-treasureisland-p0.jpg';
+import pdJunglebookP0 from '@/assets/pages/pd-junglebook-p0.jpg';
+import pdJekyllhydeP0 from '@/assets/pages/pd-jekyllhyde-p0.jpg';
+import pd20000leaguesP0 from '@/assets/pages/pd-20000leagues-p0.jpg';
+import pdCallwildP0 from '@/assets/pages/pd-callwild-p0.jpg';
+import pdWarworldsP0 from '@/assets/pages/pd-warworlds-p0.jpg';
+import pdPhantomP0 from '@/assets/pages/pd-phantom-p0.jpg';
+import pdCountP0 from '@/assets/pages/pd-count-p0.jpg';
+import pdHoundP0 from '@/assets/pages/pd-hound-p0.jpg';
+import pdSunwukongP0 from '@/assets/pages/pd-sunwukong-p0.jpg';
+import pdPhantomP10 from '@/assets/pages/pd-phantom-p10.jpg';
+import pdCountP10 from '@/assets/pages/pd-count-p10.jpg';
+import pdHoundP10 from '@/assets/pages/pd-hound-p10.jpg';
+
 // Map: bookId -> pageIndex -> image
 export const pageIllustrations: Record<string, Record<number, string>> = {
   'adv-1': { 0: adv1p0, 1: adv1p1, 2: adv1p2, 3: adv1p3 },
@@ -104,4 +160,38 @@ export const pageIllustrations: Record<string, Record<number, string>> = {
     10: act2p10, 11: act2p11, 12: act2p12,
     14: act2p14, 15: act2p15, 16: act2p16, 17: act2p17, 18: act2p18, 19: act2p19,
   },
+  // Public domain classics
+  'classic-pride': { 0: pridep0, 3: pridep3, 10: pridep10 },
+  'classic-sherlock': { 0: sherlockp0, 3: sherlockp3 },
+  'classic-dracula': { 0: draculap0, 4: draculap4, 10: draculap10 },
+  'classic-frankenstein': { 0: frankensteinp0, 5: frankensteinp5, 10: frankensteinp10 },
+  'classic-dorian': { 0: dorianp0, 5: dorianp5, 10: dorianp10 },
+  'classic-alice': { 0: alicep0, 4: alicep4 },
+  'classic-timemachine': { 0: timemachinep0, 2: timemachinep2, 10: timemachinep10 },
+  // Short stories
+  'short-1': { 0: short1p0, 5: short1p5 },
+  'short-2': { 0: short2p0 },
+  'short-3': { 0: short3p0 },
+  'short-4': { 0: short4p0 },
+  'short-5': { 0: short5p0 },
+  'short-6': { 0: short6p0 },
+  // Expanded library
+  'pd-asaman': { 0: pdAsamanP0 },
+  'pd-meditations': { 0: pdMeditationsP0 },
+  'pd-artofwar': { 0: pdArtofwarP0 },
+  'pd-odyssey': { 0: pdOdysseyP0, 10: pdOdysseyP10 },
+  'pd-norse': { 0: pdNorseP0 },
+  'pd-anansi': { 0: pdAnansiP0 },
+  'pd-1001nights': { 0: pd1001nightsP0 },
+  'pd-ramayana': { 0: pdRamayanaP0 },
+  'pd-treasureisland': { 0: pdTreasureislandP0 },
+  'pd-junglebook': { 0: pdJunglebookP0 },
+  'pd-jekyllhyde': { 0: pdJekyllhydeP0 },
+  'pd-20000leagues': { 0: pd20000leaguesP0 },
+  'pd-callwild': { 0: pdCallwildP0 },
+  'pd-warworlds': { 0: pdWarworldsP0 },
+  'pd-phantom': { 0: pdPhantomP0, 10: pdPhantomP10 },
+  'pd-count': { 0: pdCountP0, 10: pdCountP10 },
+  'pd-hound': { 0: pdHoundP0, 10: pdHoundP10 },
+  'pd-sunwukong': { 0: pdSunwukongP0 },
 };

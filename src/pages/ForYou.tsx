@@ -2,37 +2,50 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { books } from '@/data/books';
+import { publicDomainBooks } from '@/data/publicDomainBooks';
+import { shortStories } from '@/data/shortStories';
+import { expandedBooks } from '@/data/expandedBooks';
 import { Book } from '@/types/book';
-import { BookOpen, Trophy, Flame, Settings, Users, Award, Zap, Shield, ShoppingBag } from 'lucide-react';
+import { BookOpen, Trophy, Flame, Settings, Users, Award, Zap, Shield, ShoppingBag, Coins } from 'lucide-react';
 import SettingsMenu from '@/components/SettingsMenu';
 import BookPreviewModal from '@/components/BookPreviewModal';
 import BookCover from '@/components/BookCover';
 import BottomNav from '@/components/BottomNav';
 import TutorialOverlay from '@/components/TutorialOverlay';
+import FeaturedContent from '@/components/FeaturedContent';
 import { useBookRatings } from '@/hooks/useBookRatings';
 import { useAppNotifications } from '@/hooks/useAppNotifications';
+import { forYouBooksForAge } from '@/utils/ageClassification';
+import { useDailyLogin } from '@/hooks/useDailyLogin';
+import { useCoinSync } from '@/hooks/useCoinSync';
+import DailyLoginModal from '@/components/DailyLoginModal';
+
+const allBooksRaw = [...books, ...publicDomainBooks, ...shortStories, ...expandedBooks];
 
 const ForYou = () => {
-  const { progress, getUserLevel } = useApp();
+  const { progress, settings, getUserLevel } = useApp();
   const navigate = useNavigate();
+  const allBooks = forYouBooksForAge(allBooksRaw, settings.ageGroup);
   const [previewBook, setPreviewBook] = useState<Book | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { ratings } = useBookRatings();
   useAppNotifications();
+  const dailyLogin = useDailyLogin();
+  const { coins } = useCoinSync();
 
   useEffect(() => {
     const done = localStorage.getItem('bookquest-tutorial-done');
     if (!done) setTutorialOpen(true);
   }, []);
 
-  const likedBooks = books.filter(b => progress.likedBooks.includes(b.id));
-  const readBooks = books.filter(b => progress.booksRead.includes(b.id));
+  const likedBooks = allBooks.filter(b => progress.likedBooks.includes(b.id));
+  const readBooks = allBooks.filter(b => progress.booksRead.includes(b.id));
   const userLevel = getUserLevel();
 
   const likedGenres = [...new Set(likedBooks.map(b => b.genre))];
-  const recommended = books.filter(
+  const recommended = allBooks.filter(
     b => likedGenres.includes(b.genre) &&
       !progress.likedBooks.includes(b.id) &&
       !progress.dislikedBooks.includes(b.id)
@@ -73,7 +86,11 @@ const ForYou = () => {
               )}
             </div>
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-1 items-center">
+            <div className="flex items-center gap-1 bg-card border border-border rounded-2xl px-2.5 py-1 mr-1">
+              <Coins className="w-3.5 h-3.5 text-yellow-500" />
+              <span className="font-bold text-xs">{coins.toLocaleString()}</span>
+            </div>
             <button onClick={() => navigate('/shop')} className="p-2 rounded-xl hover:bg-muted transition-colors">
               <ShoppingBag className="w-5 h-5 text-yellow-500" />
             </button>
@@ -139,6 +156,11 @@ const ForYou = () => {
           </div>
         )}
 
+        {/* Featured Content */}
+        <section className="mb-8">
+          <FeaturedContent onBookSelect={(book) => navigate(`/read/${book.id}`)} />
+        </section>
+
         {/* Recommended */}
         {recommended.length > 0 && (
           <section className="mb-8">
@@ -182,6 +204,13 @@ const ForYou = () => {
       <BottomNav />
       <SettingsMenu open={settingsOpen} onOpenChange={setSettingsOpen} />
       <TutorialOverlay isOpen={tutorialOpen} onClose={() => setTutorialOpen(false)} />
+      <DailyLoginModal
+        open={!dailyLogin.loading && !dailyLogin.claimed}
+        reward={dailyLogin.reward}
+        streak={dailyLogin.streak}
+        onClaim={dailyLogin.claim}
+        onClose={() => {}}
+      />
     </div>
   );
 };

@@ -5,6 +5,7 @@ import { ArrowLeft, ShoppingBag, Coins, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
+import { useCoinSync } from '@/hooks/useCoinSync';
 
 type Category = 'all' | 'theme' | 'avatar' | 'pet' | 'boost';
 
@@ -40,7 +41,7 @@ const Shop = () => {
   const navigate = useNavigate();
   const [items, setItems] = useState<ShopItem[]>([]);
   const [ownedIds, setOwnedIds] = useState<Set<string>>(new Set());
-  const [coins, setCoins] = useState(0);
+  const { coins, setCoins, refreshCoins } = useCoinSync();
   const [category, setCategory] = useState<Category>('all');
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
@@ -59,14 +60,6 @@ const Shop = () => {
     setItems((shopItems as unknown as ShopItem[]) ?? []);
 
     if (user) {
-      // Load user coins
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('coins')
-        .eq('user_id', user.id)
-        .single();
-      setCoins((profile as any)?.coins ?? 0);
-
       // Load owned items
       const { data: inventory } = await supabase
         .from('user_inventory')
@@ -91,9 +84,9 @@ const Shop = () => {
       return;
     }
 
-    // Deduct coins
+    // Deduct coins via secure RPC
     const newCoins = coins - item.price;
-    await supabase.from('profiles').update({ coins: newCoins } as any).eq('user_id', userId);
+    await supabase.rpc('update_profile_economy', { p_user_id: userId, p_coins: newCoins } as any);
 
     // Add to inventory
     const expiresAt = item.boost_duration_hours

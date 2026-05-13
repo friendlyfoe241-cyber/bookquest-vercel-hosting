@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Fredoka+One&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -34,6 +36,14 @@
     --input: 40 15% 88%;
     --ring: var(--accent-hsl);
     --radius: 1rem;
+
+    --genre-adventure: 25 90% 52%;
+    --genre-fantasy: 270 60% 58%;
+    --genre-animals: 145 55% 42%;
+    --genre-action: 0 75% 55%;
+    --genre-mystery: 220 50% 50%;
+    --genre-sci-fi: 195 80% 45%;
+    --genre-classic: 35 60% 50%;
 
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
@@ -74,6 +84,14 @@
     --input: 240 8% 20%;
     --ring: var(--accent-hsl);
 
+    --genre-adventure: 25 85% 55%;
+    --genre-fantasy: 270 55% 62%;
+    --genre-animals: 145 50% 48%;
+    --genre-action: 0 70% 58%;
+    --genre-mystery: 220 45% 55%;
+    --genre-sci-fi: 195 75% 50%;
+    --genre-classic: 35 55% 55%;
+
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
@@ -89,8 +107,8 @@
   * {
     @apply border-border;
   }
-  html, body {
-    overscroll-behavior: none;
+  html {
+    overscroll-behavior-x: none;
     overflow-x: hidden;
   }
   body {
@@ -101,11 +119,13 @@
     letter-spacing: 0.01em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    touch-action: pan-y;
+    overscroll-behavior-x: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 
-@import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Fredoka+One&display=swap');
 
 .font-display {
   font-family: 'Fredoka One', cursive;

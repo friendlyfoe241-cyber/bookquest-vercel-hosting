@@ -1,104 +1,99 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { books } from '@/data/books';
-import { bookCovers } from '@/data/bookCovers';
-import { pageIllustrations } from '@/data/pageIllustrations';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Button } from '@/components/ui/button';
-import { ArrowLeft, ChevronDown } from 'lucide-react';
+import { publicDomainBooks } from '@/data/publicDomainBooks';
+import { shortStories } from '@/data/shortStories';
+import { expandedBooks } from '@/data/expandedBooks';
+import { X } from 'lucide-react';
+import { motion } from 'framer-motion';
 import QTEOverlay from '@/components/QTEOverlay';
 import MazeGame from '@/components/MazeGame';
 import ReactionGame from '@/components/ReactionGame';
 import PuzzleGame from '@/components/PuzzleGame';
+import BookLoadingScreen from '@/components/reader/BookLoadingScreen';
+import ReaderPage from '@/components/reader/ReaderPage';
+import { useImagePreloader, getImageCache, shouldHaveImage } from '@/hooks/useImagePreloader';
+
+const allBooks = [...books, ...publicDomainBooks, ...shortStories, ...expandedBooks];
 
 const Reader = () => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate = useNavigate();
   const { markBookRead } = useApp();
 
-  // Support both catalog and imported books
-  const book = books.find(b => b.id === bookId) || (() => {
+  const book = allBooks.find(b => b.id === bookId) || (() => {
     try {
       const imported = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
       return imported.find((b: any) => b.id === bookId) || null;
     } catch { return null; }
   })();
+
+  const { progress, ready } = useImagePreloader(book);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   const [currentPage, setCurrentPage] = useState(0);
   const [showQTE, setShowQTE] = useState(false);
   const [qteResults, setQteResults] = useState<Record<number, boolean>>({});
-  const [direction, setDirection] = useState<1 | -1>(1);
-  const [showHeader, setShowHeader] = useState(true);
 
   const page = book?.pages[currentPage];
-  const isLastPage = book ? currentPage === book.pages.length - 1 : false;
 
+  // Track current page from scroll position
   useEffect(() => {
-    if (page?.qte && qteResults[currentPage] === undefined) {
+    const container = scrollRef.current;
+    if (!container || !ready) return;
+
+    let ticking = false;
+    const handleScroll = () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        const pageHeight = container.clientHeight;
+        const newPage = Math.round(container.scrollTop / pageHeight);
+        setCurrentPage(prev => {
+          if (prev !== newPage && newPage >= 0 && newPage < (book?.pages.length || 0)) {
+            return newPage;
+          }
+          return prev;
+        });
+        ticking = false;
+      });
+    };
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [ready, book?.pages.length]);
+
+  // QTE trigger
+  useEffect(() => {
+    if (!ready || !page) return;
+    if (page.qte && qteResults[currentPage] === undefined) {
       const timer = setTimeout(() => setShowQTE(true), 800);
       return () => clearTimeout(timer);
     }
-  }, [currentPage, page?.qte, qteResults]);
+  }, [currentPage, page?.qte, qteResults, ready]);
 
-  const goNext = useCallback(() => {
-    if (!book || currentPage >= book.pages.length - 1) return;
-    setDirection(1);
-    setCurrentPage(p => p + 1);
-  }, [book, currentPage]);
-
-  const goPrev = useCallback(() => {
-    if (currentPage <= 0) return;
-    setDirection(-1);
-    setCurrentPage(p => p - 1);
-  }, [currentPage]);
-
-  // Scroll-based page navigation
-  useEffect(() => {
-    let cooldown = false;
-    const handleWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      if (cooldown || showQTE) return;
-      cooldown = true;
-      if (e.deltaY > 30) goNext();
-      else if (e.deltaY < -30) goPrev();
-      setTimeout(() => { cooldown = false; }, 500);
-    };
-
-    let touchStartY = 0;
-    const handleTouchStart = (e: TouchEvent) => { touchStartY = e.touches[0].clientY; };
-    const handleTouchEnd = (e: TouchEvent) => {
-      if (showQTE) return;
-      const dy = touchStartY - e.changedTouches[0].clientY;
-      if (dy > 50) goNext();
-      else if (dy < -50) goPrev();
-    };
-
-    window.addEventListener('wheel', handleWheel, { passive: false });
-    window.addEventListener('touchstart', handleTouchStart);
-    window.addEventListener('touchend', handleTouchEnd);
-    return () => {
-      window.removeEventListener('wheel', handleWheel);
-      window.removeEventListener('touchstart', handleTouchStart);
-      window.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [goNext, goPrev, showQTE]);
-
-  // Auto-hide header after 3 seconds
-  useEffect(() => {
-    const timer = setTimeout(() => setShowHeader(false), 3000);
-    return () => clearTimeout(timer);
-  }, [currentPage]);
-
-  if (!book || !page) {
+  // Loading / not found
+  if (!book) {
     return (
       <div className="h-dvh flex items-center justify-center bg-background">
-        <p>Book not found.</p>
+        <p className="text-muted-foreground">Book not found.</p>
       </div>
     );
   }
 
+  if (!ready) {
+    return <BookLoadingScreen book={book} progress={progress} />;
+  }
+
   const handleQTEComplete = (success: boolean) => {
-    setQteResults(prev => ({ ...prev, [currentPage]: success }));
+    setQteResults(prev => {
+      const updated = { ...prev, [currentPage]: success };
+      const passed = Object.values(updated).filter(Boolean).length;
+      const total = Object.values(updated).length;
+      localStorage.setItem(`bookquest-qte-${book.id}`, JSON.stringify({ passed, total }));
+      return updated;
+    });
     setShowQTE(false);
   };
 
@@ -107,106 +102,80 @@ const Reader = () => {
     navigate(`/quiz/${book.id}`);
   };
 
-  const getPageImage = () => {
-    const bookPages = pageIllustrations[book.id];
-    if (bookPages && bookPages[currentPage]) return bookPages[currentPage];
-    if (bookCovers[book.id]) return bookCovers[book.id];
-    return null;
+  const handleExit = () => {
+    navigate(-1);
   };
 
-  const pageImage = getPageImage();
-
-  const variants = {
-    enter: (d: number) => ({ opacity: 0, y: d > 0 ? 80 : -80 }),
-    center: { opacity: 1, y: 0 },
-    exit: (d: number) => ({ opacity: 0, y: d > 0 ? -80 : 80 }),
-  };
+  const cache = getImageCache();
+  const progressPercent = ((currentPage + 1) / book.pages.length) * 100;
 
   return (
-    <div className="h-dvh bg-background flex flex-col overflow-hidden relative" onClick={() => setShowHeader(h => !h)}>
-      {/* Floating Header */}
-      <AnimatePresence>
-        {showHeader && (
-          <motion.div
-            initial={{ y: -60, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            exit={{ y: -60, opacity: 0 }}
-            className="absolute top-0 left-0 right-0 z-30 flex items-center gap-3 p-3 bg-background/80 backdrop-blur-md border-b border-border safe-area-top"
-            onClick={e => e.stopPropagation()}
-          >
-            <button onClick={() => navigate(-1)} className="p-2 rounded-xl hover:bg-muted">
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-            <div className="flex-1 min-w-0">
-              <h2 className="font-semibold text-sm truncate">{book.title}</h2>
-              <p className="text-xs text-muted-foreground">Page {currentPage + 1} of {book.pages.length}</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="h-dvh bg-background flex flex-col relative select-none overflow-hidden">
+      {/* Top bar */}
+      <div className="flex items-center gap-3 p-3 bg-background/80 backdrop-blur-md border-b border-border safe-area-top z-30 flex-shrink-0">
+        <button
+          onClick={handleExit}
+          className="p-2 rounded-xl hover:bg-muted transition-colors"
+          aria-label="Exit book"
+        >
+          <X className="w-5 h-5 text-foreground" />
+        </button>
+        <div className="flex-1 min-w-0">
+          <h2 className="font-semibold text-sm truncate text-foreground">{book.title}</h2>
+          <p className="text-xs text-muted-foreground">
+            Page {currentPage + 1} of {book.pages.length}
+          </p>
+        </div>
+      </div>
 
-      {/* Progress bar - always visible */}
+      {/* Progress bar */}
       <div className="h-1 bg-muted flex-shrink-0 z-20">
-        <motion.div className="h-full bg-primary" animate={{ width: `${((currentPage + 1) / book.pages.length) * 100}%` }} />
+        <motion.div className="h-full bg-primary" animate={{ width: `${progressPercent}%` }} />
       </div>
 
-      {/* Page content - fullscreen */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-        <AnimatePresence mode="wait" custom={direction}>
-          <motion.div
-            key={currentPage}
-            custom={direction}
-            variants={variants}
-            initial="enter"
-            animate="center"
-            exit="exit"
-            transition={{ duration: 0.3, ease: 'easeInOut' }}
-            className="flex-1 flex flex-col items-center justify-center px-4 py-6 sm:px-8 w-full max-w-2xl mx-auto"
-          >
-            {pageImage ? (
-              <img
-                src={pageImage}
-                alt={page.imageDescription}
-                className="w-full max-h-[45vh] sm:max-h-[50vh] rounded-2xl object-cover mb-4 shadow-lg flex-shrink-0"
-              />
-            ) : (
-              <div className={`w-full max-h-[45vh] sm:max-h-[50vh] aspect-square rounded-2xl bg-gradient-to-br ${book.coverColor} mb-4 flex items-center justify-center shadow-lg flex-shrink-0`}>
-                <span className="text-6xl sm:text-7xl">{book.coverEmoji}</span>
-              </div>
-            )}
+      {/* Snap-scroll pages container */}
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-scroll snap-y snap-mandatory"
+        style={{ scrollBehavior: 'smooth' }}
+      >
+        {book.pages.map((p: any, i: number) => {
+          const cacheKey = `${book.id}:${i}`;
+          const pageHasImage = shouldHaveImage(book.difficulty, i);
+          const cachedImage = pageHasImage ? (cache.get(cacheKey) || null) : null;
 
-            <p className="text-base sm:text-lg leading-relaxed text-center font-medium px-2">{page.text}</p>
-
-            {page.qte && qteResults[currentPage] !== undefined && (
-              <motion.div
-                initial={{ scale: 0 }} animate={{ scale: 1 }}
-                className={`mt-3 px-3 py-1 rounded-full text-xs font-bold ${qteResults[currentPage] ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'}`}
-              >
-                {page.qte.type === 'maze'
-                  ? (qteResults[currentPage] ? '🏆 Maze Solved!' : '🏆 Maze Attempted')
-                  : (qteResults[currentPage] ? '⚡ QTE Passed!' : '⚡ QTE Attempted')}
-              </motion.div>
-            )}
-          </motion.div>
-        </AnimatePresence>
+          return (
+            <ReaderPage
+              key={i}
+              page={p}
+              pageIndex={i}
+              book={book}
+              cachedImage={cachedImage}
+              qteResult={qteResults[i]}
+              isLastPage={i === book.pages.length - 1}
+              onFinish={handleFinish}
+            />
+          );
+        })}
       </div>
 
-      {/* Bottom controls - always visible */}
-      <div className="flex-shrink-0 p-3 sm:p-4 flex gap-3 justify-center bg-background/80 backdrop-blur-md border-t border-border safe-area-bottom z-20" onClick={e => e.stopPropagation()}>
-        {currentPage > 0 && (
-          <Button variant="outline" size="sm" className="rounded-2xl" onClick={goPrev}>← Back</Button>
-        )}
-        {isLastPage ? (
-          <Button size="sm" className="rounded-2xl px-6" onClick={handleFinish}>Finish & Quiz 🎯</Button>
-        ) : (
-          <Button size="sm" className="rounded-2xl px-6" onClick={goNext}>
-            Next <ChevronDown className="w-4 h-4 ml-1" />
-          </Button>
-        )}
-      </div>
+      {/* Scroll hint on first page */}
+      {currentPage === 0 && (
+        <motion.div
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={{ delay: 3, duration: 1 }}
+          className="absolute bottom-4 left-1/2 -translate-x-1/2 text-xs text-muted-foreground flex flex-col items-center gap-1 z-20"
+        >
+          <motion.span animate={{ y: [0, 6, 0] }} transition={{ duration: 1.5, repeat: Infinity }}>
+            ↓
+          </motion.span>
+          Swipe up for next page
+        </motion.div>
+      )}
 
       {/* QTE / Maze Overlay */}
-      {showQTE && page.qte && (
+      {showQTE && page?.qte && (
         page.qte.type === 'maze' ? (
           <MazeGame prompt={page.qte.prompt} timeLimit={page.qte.timeLimit} onComplete={handleQTEComplete} successText={page.qte.successText} failText={page.qte.failText} difficulty={book.difficulty} />
         ) : page.qte.type === 'reaction' ? (

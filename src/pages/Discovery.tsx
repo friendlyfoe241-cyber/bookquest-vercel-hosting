@@ -2,6 +2,9 @@ import { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { books } from '@/data/books';
+import { publicDomainBooks } from '@/data/publicDomainBooks';
+import { shortStories } from '@/data/shortStories';
+import { expandedBooks } from '@/data/expandedBooks';
 import { bookCovers } from '@/data/bookCovers';
 import { Book } from '@/types/book';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
@@ -9,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Heart, X, Sparkles, Search, ThumbsDown, Clock } from 'lucide-react';
 import { useDiscoveryFeed } from '@/hooks/useDiscoveryFeed';
+import { filterBooksByAge } from '@/utils/ageClassification';
 
 /** Pick exactly 5 random books using a session seed */
 function getRandomBooks(
@@ -45,7 +49,7 @@ function getRandomBooks(
 }
 
 const Discovery = () => {
-  const { progress, likeBook, dislikeBook } = useApp();
+  const { progress, settings, likeBook, dislikeBook } = useApp();
 
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
@@ -58,20 +62,23 @@ const Discovery = () => {
   const initialLiked = useRef(progress.likedBooks);
   const initialDisliked = useRef(progress.dislikedBooks);
 
+  const allBooks = useMemo(() => filterBooksByAge([...books, ...publicDomainBooks, ...shortStories, ...expandedBooks], settings.ageGroup), [settings.ageGroup]);
+
   const likedGenres = [...new Set(
-    books.filter(b => initialLiked.current.includes(b.id)).map(b => b.genre)
+    allBooks.filter(b => initialLiked.current.includes(b.id)).map(b => b.genre)
   )];
 
   const dailyBooks = useMemo(() => {
+    // Try server-side feed first, always fall back to local random selection
     if (isLoggedIn && feedBookIds.length > 0) {
-      return feedBookIds
-        .map(id => books.find(b => b.id === id))
-        .filter((b): b is Book => !!b)
-        .slice(0, 5);
+      const mapped = feedBookIds
+        .map(id => allBooks.find(b => b.id === id))
+        .filter((b): b is Book => !!b);
+      if (mapped.length > 0) return mapped.slice(0, 5);
     }
-    return getRandomBooks(books, initialLiked.current, initialDisliked.current, likedGenres, sessionSeed.current);
+    return getRandomBooks(allBooks, initialLiked.current, initialDisliked.current, likedGenres, sessionSeed.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn, feedBookIds]);
+  }, [isLoggedIn, feedBookIds, allBooks]);
 
   const filteredBooks = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -153,7 +160,8 @@ const Discovery = () => {
     );
   }
 
-  if (isLoggedIn && isLoading) {
+  if (isLoggedIn && isLoading && feedBookIds.length === 0) {
+    // Only show loading for a brief moment; local books always available as fallback
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-background">
         <Sparkles className="w-12 h-12 text-primary animate-pulse mb-4" />

@@ -22,10 +22,12 @@ export interface QuizQuestion {
   type: 'mcq' | 'truefalse';
 }
 
+export type AgeGroup = '3-8' | '8-11' | '12-17+';
+
 export interface Book {
   id: string;
   title: string;
-  genre: 'Adventure' | 'Fantasy' | 'Animals' | 'Action';
+  genre: 'Adventure' | 'Fantasy' | 'Animals' | 'Action' | 'Mystery' | 'Sci-Fi' | 'Classic';
   summary: string;
   teaser?: string;
   coverColor: string;
@@ -33,7 +35,12 @@ export interface Book {
   pages: BookPage[];
   quiz: QuizQuestion[];
   difficulty: 'beginner' | 'intermediate' | 'experienced';
+  ageGroup?: AgeGroup;
   isImported?: boolean;
+  estimatedReadingTime?: number;
+  author?: string;
+  isPublicDomain?: boolean;
+  tags?: string[];
 }
 
 export interface UserProgress {
@@ -57,6 +64,7 @@ export interface AppSettings {
   darkMode: boolean;
   accentColor: string;
   onboarded: boolean;
+  ageGroup: AgeGroup;
 }
 
 export type AccentColor = {

@@ -2,7 +2,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { books } from '@/data/books';
 import { bookCovers } from '@/data/bookCovers';
 import { ArrowLeft } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
+import GenreBadge from '@/components/GenreBadge';
 import BookReviews from '@/components/BookReviews';
 
 const Reviews = () => {
@@ -40,7 +40,7 @@ const Reviews = () => {
         )}
         <div>
           <h2 className="font-display text-lg">{book.title}</h2>
-          <Badge variant="secondary" className="mt-1">{book.genre}</Badge>
+          <GenreBadge genre={book.genre} className="mt-1" />
           <p className="text-xs text-muted-foreground mt-2">{book.summary}</p>
         </div>
       </div>

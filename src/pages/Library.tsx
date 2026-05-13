@@ -2,16 +2,21 @@ import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { books } from '@/data/books';
+import { publicDomainBooks } from '@/data/publicDomainBooks';
+import { shortStories } from '@/data/shortStories';
+import { expandedBooks } from '@/data/expandedBooks';
 import { bookCovers } from '@/data/bookCovers';
 import { Book } from '@/types/book';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Badge } from '@/components/ui/badge';
+import GenreBadge from '@/components/GenreBadge';
 import { Input } from '@/components/ui/input';
 import { Search, ArrowLeft, BookOpen, Filter, X, Star } from 'lucide-react';
 import { useBookRatings } from '@/hooks/useBookRatings';
 import BottomNav from '@/components/BottomNav';
+import { libraryBooksForAge } from '@/utils/ageClassification';
 
-const GENRES = ['All', 'Adventure', 'Fantasy', 'Animals', 'Action'] as const;
+const allLibraryBooksRaw = [...books, ...publicDomainBooks, ...shortStories, ...expandedBooks];
+const GENRES = ['All', 'Adventure', 'Fantasy', 'Animals', 'Action', 'Mystery', 'Sci-Fi', 'Classic'] as const;
 const DIFFICULTIES = ['All', 'beginner', 'intermediate', 'experienced'] as const;
 
 function fuzzyMatch(text: string, query: string): boolean {
@@ -24,8 +29,8 @@ function fuzzyMatch(text: string, query: string): boolean {
 
 const Library = () => {
   const navigate = useNavigate();
-  const { progress } = useApp();
-
+  const { progress, settings } = useApp();
+  const allLibraryBooks = useMemo(() => libraryBooksForAge(allLibraryBooksRaw, settings.ageGroup), [settings.ageGroup]);
   const [searchQuery, setSearchQuery] = useState('');
   const [genreFilter, setGenreFilter] = useState<string>('All');
   const [difficultyFilter, setDifficultyFilter] = useState<string>('All');
@@ -33,7 +38,7 @@ const Library = () => {
   const { ratings } = useBookRatings();
 
   const filteredBooks = useMemo(() => {
-    return books.filter(book => {
+    return allLibraryBooks.filter(book => {
       const matchesSearch = fuzzyMatch(book.title, searchQuery) ||
         fuzzyMatch(book.genre, searchQuery) ||
         fuzzyMatch(book.summary, searchQuery);
@@ -176,7 +181,7 @@ const Library = () => {
                   <div className="flex-1 min-w-0">
                     <h3 className="font-bold text-sm truncate">{book.title}</h3>
                     <div className="flex items-center gap-2 mt-1">
-                      <Badge variant="secondary" className="text-[10px] px-2 py-0">{book.genre}</Badge>
+                      <GenreBadge genre={book.genre} className="text-[10px] px-2 py-0" />
                       <span className="text-[10px] text-muted-foreground">{book.pages.length} pages</span>
                       {book.pages.some(p => p.qte) && (
                         <span className="text-[10px] text-primary font-semibold">⚡ QTE</span>

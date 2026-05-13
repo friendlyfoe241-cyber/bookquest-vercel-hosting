@@ -1,10 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { books } from '@/data/books';
+import { publicDomainBooks } from '@/data/publicDomainBooks';
+import { shortStories } from '@/data/shortStories';
+import { expandedBooks } from '@/data/expandedBooks';
+import { supabase } from '@/integrations/supabase/client';
+import { calcTotalBookCoins } from '@/utils/coinEconomy';
+import type { Difficulty } from '@/utils/coinEconomy';
+
+const allBooks = [...books, ...publicDomainBooks, ...shortStories, ...expandedBooks];
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Check, X, Star, MessageSquare, Zap } from 'lucide-react';
+import { Check, X, Star, MessageSquare, Zap, Coins } from 'lucide-react';
 
 const Quiz = () => {
   const { bookId } = useParams<{ bookId: string }>();
@@ -12,7 +20,7 @@ const Quiz = () => {
   const { saveQuizScore, rateBook, addQuizStreak, progress } = useApp();
 
   // Support both catalog and imported books
-  const book = books.find(b => b.id === bookId) || (() => {
+  const book = allBooks.find(b => b.id === bookId) || (() => {
     try {
       const imported = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
       return imported.find((b: any) => b.id === bookId) || null;
@@ -26,6 +34,7 @@ const Quiz = () => {
   const [showRating, setShowRating] = useState(false);
   const [rating, setRating] = useState(3);
   const [sessionStreak, setSessionStreak] = useState(0);
+  const [coinsBreakdown, setCoinsBreakdown] = useState<{ reading: number; quiz: number; qte: number; total: number } | null>(null);
 
   if (!book) return <div className="min-h-screen flex items-center justify-center">Book not found</div>;
 
@@ -51,8 +60,52 @@ const Quiz = () => {
       if (currentQ < book.quiz.length - 1) {
         setCurrentQ(prev => prev + 1);
       } else {
-        const finalScore = [...answers, idx].filter((a, i) => a === book.quiz[i].correctIndex).length;
+        const finalAnswers = [...answers, idx];
+        const finalScore = finalAnswers.filter((a, i) => a === book.quiz[i].correctIndex).length;
         saveQuizScore(book.id, finalScore, book.quiz.length);
+
+        // Calculate coins
+        const isReread = progress.booksRead.filter(id => id === book.id).length > 1
+          || (progress.quizScores[book.id] !== undefined);
+        const difficulty = (book.difficulty || 'beginner') as Difficulty;
+
+        // Get QTE results from localStorage (stored by Reader)
+        const qteData = JSON.parse(localStorage.getItem(`bookquest-qte-${book.id}`) || '{"passed":0,"total":0}');
+
+        const breakdown = calcTotalBookCoins(
+          difficulty,
+          finalScore,
+          book.quiz.length,
+          qteData.passed,
+          qteData.total,
+          isReread,
+        );
+        setCoinsBreakdown(breakdown);
+
+        // Award coins to profile
+        (async () => {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) return;
+          const { data: profile } = await supabase.from('profiles').select('coins').eq('user_id', user.id).single();
+          if (profile) {
+            await supabase.rpc('update_profile_economy', {
+              p_user_id: user.id,
+              p_coins: profile.coins + breakdown.total,
+            } as any);
+          }
+          // Track coins earned on this book
+          const { data: ub } = await supabase.from('user_books')
+            .select('id, coins_earned')
+            .eq('user_id', user.id)
+            .eq('book_id', book.id)
+            .maybeSingle();
+          if (ub) {
+            await supabase.from('user_books').update({
+              coins_earned: (ub as any).coins_earned + breakdown.total,
+            } as any).eq('id', ub.id);
+          }
+        })();
+
         setShowResult(true);
       }
     }, 1000);
@@ -113,12 +166,22 @@ const Quiz = () => {
           </p>
           <p className="text-sm text-primary font-semibold mb-1">+{pointsEarned} reading points!</p>
 
-          {/* Quiz streak display */}
-          {progress.quizStreak > 0 && (
-            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ delay: 0.3 }}
-              className="flex items-center gap-1 justify-center text-sm text-yellow-600 mb-2">
-              <Zap className="w-4 h-4" />
-              <span>{progress.quizStreak} answer streak!</span>
+          {/* Coin breakdown */}
+          {coinsBreakdown && coinsBreakdown.total > 0 && (
+            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
+              className="bg-muted/50 rounded-2xl p-3 mb-2 text-sm">
+              <div className="flex items-center justify-center gap-1 text-lg font-bold text-foreground mb-1">
+                <Coins className="w-5 h-5 text-yellow-500" />
+                +{coinsBreakdown.total} coins
+              </div>
+              <div className="flex justify-center gap-3 text-xs text-muted-foreground">
+                <span>📖 {coinsBreakdown.reading}</span>
+                <span>🧠 {coinsBreakdown.quiz}</span>
+                {coinsBreakdown.qte > 0 && <span>⚡ {coinsBreakdown.qte}</span>}
+              </div>
+              {score === book.quiz.length && (
+                <p className="text-xs text-primary font-semibold mt-1">✨ Perfect bonus: quiz coins doubled!</p>
+              )}
             </motion.div>
           )}
 
