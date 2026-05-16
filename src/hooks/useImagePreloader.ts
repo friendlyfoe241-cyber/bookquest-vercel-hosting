@@ -1,19 +1,22 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { bookCovers } from '@/data/bookCovers';
-import { pageIllustrations } from '@/data/pageIllustrations';
 
-// Shared image cache across Reader sessions
+// In-memory cache for the current session (avoids redundant fetches)
 const imageCache = new Map<string, string>();
 
 export function getImageCache() {
   return imageCache;
 }
 
-// Expert: page 0, then every 3 (0,3,6,9,...)
-// Beginner/Intermediate: every page
-export function shouldHaveImage(difficulty: string, pageIndex: number): boolean {
-  return true; // every page for all difficulty levels
+// All pages get an illustration
+export function shouldHaveImage(_difficulty: string, _pageIndex: number): boolean {
+  return true;
+}
+
+interface Page {
+  text: string;
+  imageDescription?: string;
+  qte?: unknown;
 }
 
 interface Book {
@@ -21,7 +24,7 @@ interface Book {
   difficulty: string;
   coverEmoji: string;
   coverColor: string;
-  pages: { text: string; imageDescription?: string; qte?: any }[];
+  pages: Page[];
 }
 
 export function useImagePreloader(book: Book | null) {
@@ -42,57 +45,62 @@ export function useImagePreloader(book: Book | null) {
         setProgress(Math.round((loaded / totalPages) * 100));
       };
 
-      const promises = book.pages.map(async (page, idx) => {
+      // Catalog books have fixed string IDs (e.g. "adv-1")
+      // Imported books have UUIDs
+      const isImported = /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(book.id);
+
+      const loadPage = async (page: Page, idx: number) => {
         const cacheKey = `${book.id}:${idx}`;
 
+        // Already in memory — skip network call
         if (imageCache.has(cacheKey)) {
           tick();
           return;
         }
 
-        // Check static illustrations first
-        const staticIlls = pageIllustrations[book.id];
-        if (staticIlls && staticIlls[idx]) {
-          imageCache.set(cacheKey, staticIlls[idx]);
-          try {
-            const img = new Image();
-            img.src = staticIlls[idx];
-            await img.decode().catch(() => {});
-          } catch {}
-          tick();
-          return;
-        }
-
-        // Check if this page should have an image based on difficulty
-        if (!shouldHaveImage(book.difficulty, idx)) {
-          // No image needed for this page
-          tick();
-          return;
-        }
-
-        // Generate via Pollinations for ALL difficulty levels
         try {
+          const payload: Record<string, unknown> = {
+            pageText:         page.text,
+            imageDescription: page.imageDescription,
+          };
+
+          // For catalog books, pass bookId + pageNumber so the edge function
+          // checks Supabase Storage first and stores the result for all users
+          if (!isImported) {
+            payload.bookId     = book.id;
+            payload.pageNumber = idx;
+          }
+
           const { data, error } = await supabase.functions.invoke('generate-illustration', {
-            body: { pageText: page.text, bookId: book.id, pageNumber: idx },
+            body: payload,
           });
-          if (!error && data?.image) {
-            imageCache.set(cacheKey, data.image);
-            try {
-              const img = new Image();
-              img.src = data.image;
-              await img.decode().catch(() => {});
-            } catch {}
+
+          if (!error) {
+            // `url`   → persistent Storage URL (catalog books)
+            // `image` → base64 data URL (imported books / storage fallback)
+            const imgSrc = data?.url || data?.image;
+            if (imgSrc) {
+              imageCache.set(cacheKey, imgSrc);
+              try {
+                const img = new Image();
+                img.src = imgSrc;
+                await img.decode().catch(() => {});
+              } catch { /* ignore */ }
+            }
           }
         } catch (err) {
           console.error(`Failed to preload page ${idx}:`, err);
         }
-        tick();
-      });
 
-      // Run 3 at a time
+        tick();
+      };
+
+      // Run 3 pages concurrently — enough for speed, won't hammer Pollinations
+      const pageTasks = book.pages.map((page, idx) => () => loadPage(page, idx));
       const concurrency = 3;
-      for (let i = 0; i < promises.length; i += concurrency) {
-        await Promise.all(promises.slice(i, i + concurrency));
+
+      for (let i = 0; i < pageTasks.length; i += concurrency) {
+        await Promise.all(pageTasks.slice(i, i + concurrency).map(fn => fn()));
       }
 
       setReady(true);
