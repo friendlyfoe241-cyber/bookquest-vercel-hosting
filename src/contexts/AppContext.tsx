@@ -20,28 +20,17 @@ interface AppContextType {
 }
 
 const LEVELS = [
-  { title: 'Tiny Reader', scoreNeeded: 0 },
-  { title: 'Bookworm', scoreNeeded: 10 },
-  { title: 'Story Explorer', scoreNeeded: 25 },
-  { title: 'Reading Champion', scoreNeeded: 50 },
-  { title: 'Book Master', scoreNeeded: 100 },
+  { title: 'Tiny Reader',       scoreNeeded: 0   },
+  { title: 'Bookworm',          scoreNeeded: 10  },
+  { title: 'Story Explorer',    scoreNeeded: 25  },
+  { title: 'Reading Champion',  scoreNeeded: 50  },
+  { title: 'Book Master',       scoreNeeded: 100 },
 ];
 
 const defaultProgress: UserProgress = {
-  booksRead: [],
-  quizScores: {},
-  bookRatings: {},
-  likedBooks: [],
-  dislikedBooks: [],
-  level: 0,
-  streak: 0,
-  lastReadDate: null,
-  readingLevel: 'beginner',
-  qteScores: {},
-  quizStreak: 0,
-  bestQuizStreak: 0,
-  totalQuizPoints: 0,
-  streakSavers: 0,
+  booksRead: [], quizScores: {}, bookRatings: {}, likedBooks: [], dislikedBooks: [],
+  level: 0, streak: 0, lastReadDate: null, readingLevel: 'beginner',
+  qteScores: {}, quizStreak: 0, bestQuizStreak: 0, totalQuizPoints: 0, streakSavers: 0,
 };
 
 const defaultSettings: AppSettings = {
@@ -68,22 +57,27 @@ function readStoredJson<T>(key: string): Partial<T> | null {
   }
 }
 
-function clearLocalStorage() {
+function clearUserLocalStorage() {
   try {
     localStorage.removeItem('bookquest-progress');
     localStorage.removeItem('bookquest-settings');
+    localStorage.removeItem('bookquest-uid');
   } catch { /* ignore */ }
+}
+
+function getStoredUid(): string | null {
+  try { return localStorage.getItem('bookquest-uid'); } catch { return null; }
+}
+function setStoredUid(uid: string) {
+  try { localStorage.setItem('bookquest-uid', uid); } catch { /* ignore */ }
 }
 
 // ── Database sync helpers ─────────────────────────────────────────────────────
 
 async function syncBookToDb(userId: string, bookId: string, updates: Record<string, unknown>) {
   const { data: existing } = await supabase
-    .from('user_books')
-    .select('id')
-    .eq('user_id', userId)
-    .eq('book_id', bookId)
-    .maybeSingle();
+    .from('user_books').select('id')
+    .eq('user_id', userId).eq('book_id', bookId).maybeSingle();
   if (existing) {
     await supabase.from('user_books').update(updates).eq('id', existing.id);
   } else {
@@ -92,7 +86,6 @@ async function syncBookToDb(userId: string, bookId: string, updates: Record<stri
 }
 
 async function syncProfileDisplayToDb(userId: string, updates: Record<string, unknown>) {
-  // These fields are not protected by the economy trigger and can be updated directly
   const allowed = ['display_name', 'avatar_id', 'theme_id', 'reading_level',
     'leaderboard_opt_in', 'school_name', 'class_id', 'active_pet_id',
     'dark_mode', 'accent_color', 'age_group'];
@@ -106,7 +99,6 @@ async function syncProfileDisplayToDb(userId: string, updates: Record<string, un
 }
 
 async function syncProfileEconomyToDb(userId: string, updates: Record<string, unknown>) {
-  // Economy fields must go through the RPC to bypass the protection trigger
   const fieldMap: Record<string, string> = {
     coins: 'p_coins', xp: 'p_xp', level: 'p_level', streak: 'p_streak',
     streak_savers: 'p_streak_savers', total_quiz_points: 'p_total_quiz_points',
@@ -130,58 +122,67 @@ async function getAuthUserId(): Promise<string | null> {
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [progress, setProgress] = useState<UserProgress>(defaultProgress);
-  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  // FIX 1: initialise directly from localStorage so the app is never blank on load
+  const [progress, setProgress] = useState<UserProgress>(() => {
+    const cached = readStoredJson<UserProgress>('bookquest-progress');
+    return cached ? { ...defaultProgress, ...cached } : defaultProgress;
+  });
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const cached = readStoredJson<AppSettings>('bookquest-settings');
+    return cached ? { ...defaultSettings, ...cached } : defaultSettings;
+  });
 
-  // Load from DB and keep localStorage as a fast-load cache
   const restoreFromDb = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Seed from localStorage immediately for snappy UI, then overwrite with DB truth
-    const cachedProgress = readStoredJson<UserProgress>('bookquest-progress');
-    const cachedSettings = readStoredJson<AppSettings>('bookquest-settings');
-    if (cachedProgress) setProgress(prev => ({ ...prev, ...cachedProgress }));
-    if (cachedSettings) setSettings(prev => ({ ...prev, ...cachedSettings }));
+    // FIX 2: if a DIFFERENT user logs in, wipe the previous user's cached data first
+    const storedUid = getStoredUid();
+    if (storedUid && storedUid !== user.id) {
+      clearUserLocalStorage();
+      setProgress(defaultProgress);
+      setSettings(defaultSettings);
+    }
+    setStoredUid(user.id);
 
     // ── Profile ───────────────────────────────────────────────────────────────
     const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', user.id)
-      .single();
+      .from('profiles').select('*').eq('user_id', user.id).single();
 
     if (profile) {
       setProgress(prev => ({
         ...prev,
-        level:           profile.level           ?? prev.level,
-        streak:          profile.streak          ?? prev.streak,
-        lastReadDate:    profile.last_read_date  ?? prev.lastReadDate,
+        // FIX 3: use Math.max so DB 0 never overwrites a higher localStorage value
+        // (handles migration from old system where DB was always 0)
+        level:           Math.max(profile.level          ?? 0,  prev.level),
+        streak:          Math.max(profile.streak         ?? 0,  prev.streak),
+        quizStreak:      Math.max(profile.quiz_streak    ?? 0,  prev.quizStreak),
+        bestQuizStreak:  Math.max(profile.best_quiz_streak ?? 0, prev.bestQuizStreak),
+        totalQuizPoints: Math.max(profile.total_quiz_points ?? 0, prev.totalQuizPoints),
+        streakSavers:    Math.max(profile.streak_savers  ?? 0,  prev.streakSavers),
+        // For non-numeric fields, DB wins only if it has a real value
+        lastReadDate:    profile.last_read_date ?? prev.lastReadDate,
         readingLevel:    (profile.reading_level as any) ?? prev.readingLevel,
-        quizStreak:      profile.quiz_streak     ?? prev.quizStreak,
-        bestQuizStreak:  profile.best_quiz_streak ?? prev.bestQuizStreak,
-        totalQuizPoints: profile.total_quiz_points ?? prev.totalQuizPoints,
-        streakSavers:    profile.streak_savers   ?? prev.streakSavers,
       }));
       setSettings(prev => ({
         ...prev,
         onboarded:   true,
-        ageGroup:    (profile.age_group   as any) ?? prev.ageGroup,
-        darkMode:    (profile as any).dark_mode   ?? prev.darkMode,
+        ageGroup:    (profile.age_group    as any) ?? prev.ageGroup,
+        darkMode:    (profile as any).dark_mode    ?? prev.darkMode,
         accentColor: (profile as any).accent_color ?? prev.accentColor,
       }));
+    } else {
+      // Profile exists in auth but not yet in DB — still mark as onboarded
+      setSettings(prev => ({ ...prev, onboarded: true }));
     }
 
     // ── User books ────────────────────────────────────────────────────────────
     const { data: userBooks } = await supabase
-      .from('user_books')
-      .select('book_id, status, quiz_score, rating, qte_score')
+      .from('user_books').select('book_id, status, quiz_score, rating, qte_score')
       .eq('user_id', user.id);
 
     if (userBooks && userBooks.length > 0) {
-      const liked: string[] = [];
-      const disliked: string[] = [];
-      const read: string[] = [];
+      const liked: string[] = [], disliked: string[] = [], read: string[] = [];
       const quizScores: Record<string, number> = {};
       const bookRatings: Record<string, number> = {};
       const qteScores: Record<string, number> = {};
@@ -197,6 +198,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       setProgress(prev => ({
         ...prev,
+        // Merge DB lists with localStorage lists (union, DB wins on conflicts)
         likedBooks:    liked.length    > 0 ? liked    : prev.likedBooks,
         dislikedBooks: disliked.length > 0 ? disliked : prev.dislikedBooks,
         booksRead:     read.length     > 0 ? read     : prev.booksRead,
@@ -207,26 +209,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Auth state listener — restore on sign-in, wipe on sign-out
   useEffect(() => {
-    // Load immediately in case user is already signed in
     restoreFromDb();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (event === 'SIGNED_IN') {
+        // SIGNED_IN fires on every token refresh — just re-sync from DB
         restoreFromDb();
-      } else if (event === 'SIGNED_OUT') {
-        // Clear everything back to defaults so next user starts fresh
-        clearLocalStorage();
-        setProgress(defaultProgress);
-        setSettings(defaultSettings);
       }
+      // FIX 4: do NOT wipe on SIGNED_OUT — that event fires during token refreshes too.
+      // User switching is handled in restoreFromDb by comparing stored UIDs.
+      // Actual logout is handled by the logout button (which clears state directly).
     });
 
     return () => subscription.unsubscribe();
   }, [restoreFromDb]);
 
-  // Keep localStorage in sync as a read-cache (DB is the source of truth)
+  // Keep localStorage in sync (it's a fast-load cache; DB is source of truth)
   useEffect(() => {
     localStorage.setItem('bookquest-progress', JSON.stringify(progress));
   }, [progress]);
@@ -250,9 +249,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (updates.darkMode    !== undefined) dbUpdates.dark_mode    = updates.darkMode;
       if (updates.accentColor !== undefined) dbUpdates.accent_color = updates.accentColor;
       if (updates.ageGroup    !== undefined) dbUpdates.age_group    = updates.ageGroup;
-      if (Object.keys(dbUpdates).length > 0) {
-        syncProfileDisplayToDb(uid, dbUpdates);
-      }
+      if (Object.keys(dbUpdates).length > 0) syncProfileDisplayToDb(uid, dbUpdates);
     });
   }, []);
 
@@ -262,9 +259,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       likedBooks:    [...prev.likedBooks.filter(id => id !== bookId), bookId],
       dislikedBooks: prev.dislikedBooks.filter(id => id !== bookId),
     }));
-    getAuthUserId().then(uid => {
-      if (uid) syncBookToDb(uid, bookId, { status: 'liked' });
-    });
+    getAuthUserId().then(uid => { if (uid) syncBookToDb(uid, bookId, { status: 'liked' }); });
   }, []);
 
   const dislikeBook = useCallback((bookId: string) => {
@@ -273,19 +268,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dislikedBooks: [...prev.dislikedBooks.filter(id => id !== bookId), bookId],
       likedBooks:    prev.likedBooks.filter(id => id !== bookId),
     }));
-    getAuthUserId().then(uid => {
-      if (uid) syncBookToDb(uid, bookId, { status: 'disliked' });
-    });
+    getAuthUserId().then(uid => { if (uid) syncBookToDb(uid, bookId, { status: 'disliked' }); });
   }, []);
 
   const undislikeBook = useCallback((bookId: string) => {
-    setProgress(prev => ({
-      ...prev,
-      dislikedBooks: prev.dislikedBooks.filter(id => id !== bookId),
-    }));
-    getAuthUserId().then(uid => {
-      if (uid) syncBookToDb(uid, bookId, { status: 'unseen' });
-    });
+    setProgress(prev => ({ ...prev, dislikedBooks: prev.dislikedBooks.filter(id => id !== bookId) }));
+    getAuthUserId().then(uid => { if (uid) syncBookToDb(uid, bookId, { status: 'unseen' }); });
   }, []);
 
   const markBookRead = useCallback((bookId: string) => {
@@ -302,25 +290,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
       earnedSaver = newStreak > 0 && newStreak % 7 === 0 ? 1 : 0;
       return {
         ...prev,
-        booksRead:     prev.booksRead.includes(bookId) ? prev.booksRead : [...prev.booksRead, bookId],
-        streak:        newStreak,
-        lastReadDate:  today,
-        streakSavers:  prev.streakSavers + earnedSaver,
+        booksRead:    prev.booksRead.includes(bookId) ? prev.booksRead : [...prev.booksRead, bookId],
+        streak:       newStreak,
+        lastReadDate: today,
+        streakSavers: prev.streakSavers + earnedSaver,
       };
     });
 
     getAuthUserId().then(async uid => {
       if (!uid) return;
       syncBookToDb(uid, bookId, { status: 'read', read_at: new Date().toISOString() });
-
-      // Log XP for completing the book
       await supabase.from('xp_log').insert({ user_id: uid, xp_amount: XP_PER_BOOK, source: 'book_read' });
-
       const { data: profile } = await supabase.from('profiles').select('xp').eq('user_id', uid).single();
       syncProfileEconomyToDb(uid, {
-        streak:         newStreak,
-        last_read_date: today,
-        xp:             ((profile as any)?.xp ?? 0) + XP_PER_BOOK,
+        streak: newStreak, last_read_date: today,
+        xp: ((profile as any)?.xp ?? 0) + XP_PER_BOOK,
       });
     });
   }, []);
@@ -330,21 +314,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let newTotal = 0;
     setProgress(prev => {
       newTotal = prev.totalQuizPoints + points;
-      return {
-        ...prev,
-        quizScores:      { ...prev.quizScores, [bookId]: score },
-        totalQuizPoints: newTotal,
-      };
+      return { ...prev, quizScores: { ...prev.quizScores, [bookId]: score }, totalQuizPoints: newTotal };
     });
     getAuthUserId().then(async uid => {
       if (!uid) return;
       syncBookToDb(uid, bookId, { quiz_score: score });
-
-      // Log XP for quiz performance
       if (points > 0) {
         await supabase.from('xp_log').insert({ user_id: uid, xp_amount: points, source: 'quiz' });
       }
-
       const { data: profile } = await supabase.from('profiles').select('xp').eq('user_id', uid).single();
       syncProfileEconomyToDb(uid, {
         total_quiz_points: newTotal,
@@ -357,40 +334,24 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setProgress(prev => {
       if (correct) {
         const newStreak = prev.quizStreak + 1;
-        return {
-          ...prev,
-          quizStreak:     newStreak,
-          bestQuizStreak: Math.max(newStreak, prev.bestQuizStreak),
-        };
+        return { ...prev, quizStreak: newStreak, bestQuizStreak: Math.max(newStreak, prev.bestQuizStreak) };
       }
       return { ...prev, quizStreak: 0 };
     });
   }, []);
 
   const rateBook = useCallback((bookId: string, rating: number) => {
-    setProgress(prev => ({
-      ...prev,
-      bookRatings: { ...prev.bookRatings, [bookId]: rating },
-    }));
-    getAuthUserId().then(uid => {
-      if (uid) syncBookToDb(uid, bookId, { rating });
-    });
+    setProgress(prev => ({ ...prev, bookRatings: { ...prev.bookRatings, [bookId]: rating } }));
+    getAuthUserId().then(uid => { if (uid) syncBookToDb(uid, bookId, { rating }); });
   }, []);
 
   const getUserLevel = () => {
     const readingScore = progress.booksRead.length * 5 + progress.totalQuizPoints;
     let current = LEVELS[0];
-    for (const level of LEVELS) {
-      if (readingScore >= level.scoreNeeded) current = level;
-    }
-    const idx = LEVELS.indexOf(current);
+    for (const level of LEVELS) { if (readingScore >= level.scoreNeeded) current = level; }
+    const idx  = LEVELS.indexOf(current);
     const next = LEVELS[idx + 1];
-    return {
-      level:       idx,
-      title:       current.title,
-      booksNeeded: next ? next.scoreNeeded - readingScore : 0,
-      score:       readingScore,
-    };
+    return { level: idx, title: current.title, booksNeeded: next ? next.scoreNeeded - readingScore : 0, score: readingScore };
   };
 
   const checkStreak = () => {
@@ -398,11 +359,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
     if (progress.lastReadDate !== today && progress.lastReadDate !== yesterday) {
       if (progress.streakSavers > 0) {
-        setProgress(prev => ({
-          ...prev,
-          streakSavers: prev.streakSavers - 1,
-          lastReadDate: yesterday,
-        }));
+        setProgress(prev => ({ ...prev, streakSavers: prev.streakSavers - 1, lastReadDate: yesterday }));
       } else {
         setProgress(prev => ({ ...prev, streak: 0 }));
       }
