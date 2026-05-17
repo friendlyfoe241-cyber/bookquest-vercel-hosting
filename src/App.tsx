@@ -16,6 +16,7 @@ import Leaderboard from "./pages/Leaderboard";
 import Reviews from "./pages/Reviews";
 import Friends from "./pages/Friends";
 import ImportBook from "./pages/ImportBook";
+import PublicLibrary from "./pages/PublicLibrary";
 import Shop from "./pages/Shop";
 import ProfileSetup from "./pages/ProfileSetup";
 import NotFound from "./pages/NotFound";
@@ -47,7 +48,8 @@ function AppRoutes() {
       <Route path="/leaderboard" element={<Leaderboard />} />
       <Route path="/reviews/:bookId" element={<Reviews />} />
       <Route path="/friends" element={<Friends />} />
-      <Route path="/import" element={<ImportBook />} />
+      <Route path="/import" element={<Navigate to="/browse" replace />} />
+      <Route path="/browse" element={<PublicLibrary />} />
       <Route path="/shop" element={<Shop />} />
       <Route path="/profile-setup" element={<ProfileSetup />} />
       <Route path="*" element={<NotFound />} />

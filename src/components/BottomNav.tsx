@@ -1,23 +1,26 @@
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, Search, Compass, Upload } from 'lucide-react';
+import { BookOpen, Compass, BookMarked, Library } from 'lucide-react';
 import { motion } from 'framer-motion';
 
 const BottomNav = () => {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const navigate  = useNavigate();
+  const location  = useLocation();
 
   const NAV_ITEMS: Array<{ path: string; icon: typeof Compass; label: string; emoji?: string }> = [
-    { path: '/discover', icon: Compass, label: 'Discover' },
-    { path: '/foryou', icon: BookOpen, label: 'For You', emoji: '📚' },
-    { path: '/library', icon: Search, label: 'Library' },
-    { path: '/import', icon: Upload, label: 'Import' },
+    { path: '/discover', icon: Compass,    label: 'Discover' },
+    { path: '/foryou',   icon: BookOpen,   label: 'For You', emoji: '📚' },
+    { path: '/library',  icon: BookMarked, label: 'My Books' },
+    { path: '/browse',   icon: Library,    label: 'Browse' },
   ];
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 bg-card/95 backdrop-blur-md border-t border-border z-40">
       <div className="flex justify-around items-center max-w-lg mx-auto">
         {NAV_ITEMS.map(item => {
-          const isActive = location.pathname === item.path;
+          const isActive = location.pathname === item.path ||
+            // treat /import as /browse for highlight purposes
+            (item.path === '/browse' && location.pathname === '/import');
+
           return (
             <button
               key={item.path}
