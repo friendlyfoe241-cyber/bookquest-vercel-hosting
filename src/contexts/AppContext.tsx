@@ -292,6 +292,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const today = new Date().toISOString().split('T')[0];
     let newStreak = 1;
     let earnedSaver = 0;
+    const XP_PER_BOOK = 10;
 
     setProgress(prev => {
       const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
@@ -308,12 +309,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       };
     });
 
-    getAuthUserId().then(uid => {
+    getAuthUserId().then(async uid => {
       if (!uid) return;
       syncBookToDb(uid, bookId, { status: 'read', read_at: new Date().toISOString() });
+
+      // Log XP for completing the book
+      await supabase.from('xp_log').insert({ user_id: uid, xp_amount: XP_PER_BOOK, source: 'book_read' });
+
+      const { data: profile } = await supabase.from('profiles').select('xp').eq('user_id', uid).single();
       syncProfileEconomyToDb(uid, {
-        streak:        newStreak,
+        streak:         newStreak,
         last_read_date: today,
+        xp:             ((profile as any)?.xp ?? 0) + XP_PER_BOOK,
       });
     });
   }, []);
@@ -329,10 +336,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
         totalQuizPoints: newTotal,
       };
     });
-    getAuthUserId().then(uid => {
+    getAuthUserId().then(async uid => {
       if (!uid) return;
       syncBookToDb(uid, bookId, { quiz_score: score });
-      syncProfileEconomyToDb(uid, { total_quiz_points: newTotal });
+
+      // Log XP for quiz performance
+      if (points > 0) {
+        await supabase.from('xp_log').insert({ user_id: uid, xp_amount: points, source: 'quiz' });
+      }
+
+      const { data: profile } = await supabase.from('profiles').select('xp').eq('user_id', uid).single();
+      syncProfileEconomyToDb(uid, {
+        total_quiz_points: newTotal,
+        xp: ((profile as any)?.xp ?? 0) + points,
+      });
     });
   }, []);
 
