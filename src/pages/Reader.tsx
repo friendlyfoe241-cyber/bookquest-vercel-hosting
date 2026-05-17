@@ -29,7 +29,9 @@ const Reader = () => {
     } catch { return null; }
   })();
 
-  const { progress, ready } = useImagePreloader(book);
+  // loadedCount increments as background images arrive, triggering re-renders
+  // so each page picks up its image as soon as it's ready
+  const { progress, ready, loadedCount } = useImagePreloader(book);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [currentPage, setCurrentPage] = useState(0);
@@ -38,7 +40,6 @@ const Reader = () => {
 
   const page = book?.pages[currentPage];
 
-  // Track current page from scroll position
   useEffect(() => {
     const container = scrollRef.current;
     if (!container || !ready) return;
@@ -64,7 +65,6 @@ const Reader = () => {
     return () => container.removeEventListener('scroll', handleScroll);
   }, [ready, book?.pages.length]);
 
-  // QTE trigger
   useEffect(() => {
     if (!ready || !page) return;
     if (page.qte && qteResults[currentPage] === undefined) {
@@ -73,7 +73,6 @@ const Reader = () => {
     }
   }, [currentPage, page?.qte, qteResults, ready]);
 
-  // Loading / not found
   if (!book) {
     return (
       <div className="h-dvh flex items-center justify-center bg-background">
@@ -90,7 +89,7 @@ const Reader = () => {
     setQteResults(prev => {
       const updated = { ...prev, [currentPage]: success };
       const passed = Object.values(updated).filter(Boolean).length;
-      const total = Object.values(updated).length;
+      const total  = Object.values(updated).length;
       localStorage.setItem(`bookquest-qte-${book.id}`, JSON.stringify({ passed, total }));
       return updated;
     });
@@ -102,10 +101,9 @@ const Reader = () => {
     navigate(`/quiz/${book.id}`);
   };
 
-  const handleExit = () => {
-    navigate(-1);
-  };
+  const handleExit = () => { navigate(-1); };
 
+  // Re-read the cache on every render (loadedCount changes trigger this)
   const cache = getImageCache();
   const progressPercent = ((currentPage + 1) / book.pages.length) * 100;
 
@@ -133,16 +131,17 @@ const Reader = () => {
         <motion.div className="h-full bg-primary" animate={{ width: `${progressPercent}%` }} />
       </div>
 
-      {/* Snap-scroll pages container */}
+      {/* Snap-scroll pages */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-scroll snap-y snap-mandatory"
         style={{ scrollBehavior: 'smooth' }}
       >
         {book.pages.map((p: any, i: number) => {
-          const cacheKey = `${book.id}:${i}`;
+          const cacheKey    = `${book.id}:${i}`;
           const pageHasImage = shouldHaveImage(book.difficulty, i);
-          const cachedImage = pageHasImage ? (cache.get(cacheKey) || null) : null;
+          // loadedCount is referenced above so this map re-runs when new images arrive
+          const cachedImage = pageHasImage ? (cache.get(cacheKey) ?? null) : null;
 
           return (
             <ReaderPage
@@ -159,7 +158,7 @@ const Reader = () => {
         })}
       </div>
 
-      {/* Scroll hint on first page */}
+      {/* Scroll hint */}
       {currentPage === 0 && (
         <motion.div
           initial={{ opacity: 1 }}

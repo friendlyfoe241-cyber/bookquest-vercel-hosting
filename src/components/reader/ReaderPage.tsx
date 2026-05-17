@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useRef, useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import AutoFitText from './AutoFitText';
 
 interface ReaderPageProps {
@@ -12,31 +12,57 @@ interface ReaderPageProps {
   onFinish: () => void;
 }
 
-const ReaderPage = ({ page, pageIndex, book, cachedImage, qteResult, isLastPage, onFinish }: ReaderPageProps) => {
+const ReaderPage = ({
+  page, pageIndex, book, cachedImage, qteResult, isLastPage, onFinish,
+}: ReaderPageProps) => {
   const textContainerRef = useRef<HTMLDivElement>(null);
-  // If the image URL turns out to be broken/invalid, fall back to the gradient
+  // Reset error state whenever a new image URL arrives (background load completed)
   const [imgError, setImgError] = useState(false);
+  useEffect(() => { setImgError(false); }, [cachedImage]);
 
-  const showImage = cachedImage && !imgError;
+  const showImage = !!cachedImage && !imgError;
 
   return (
     <div className="w-full h-dvh flex-shrink-0 snap-start flex flex-col items-center justify-center px-6 sm:px-12 py-4">
 
-      {/* Image / fallback gradient */}
-      {showImage ? (
-        <img
-          src={cachedImage}
-          alt={page.imageDescription || 'Page illustration'}
-          onError={() => setImgError(true)}
-          className="w-full max-w-md max-h-[35vh] rounded-2xl object-cover mb-3 shadow-lg flex-shrink-0"
-        />
-      ) : (
-        <div
-          className={`w-full max-w-md max-h-[35vh] aspect-[4/3] rounded-2xl bg-gradient-to-br ${book.coverColor} mb-3 flex items-center justify-center shadow-lg flex-shrink-0`}
-        >
-          <span className="text-5xl sm:text-6xl">{book.coverEmoji}</span>
-        </div>
-      )}
+      {/* Image area — either real illustration or emoji gradient placeholder */}
+      <div className="w-full max-w-md flex-shrink-0 mb-3">
+        <AnimatePresence mode="wait">
+          {showImage ? (
+            <motion.img
+              key={cachedImage}
+              src={cachedImage}
+              alt={page.imageDescription || 'Page illustration'}
+              onError={() => setImgError(true)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.4 }}
+              className="w-full max-h-[35vh] rounded-2xl object-cover shadow-lg"
+            />
+          ) : (
+            <motion.div
+              key="placeholder"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.3 }}
+              className={`w-full aspect-[4/3] max-h-[35vh] rounded-2xl bg-gradient-to-br ${book.coverColor} flex items-center justify-center shadow-lg`}
+            >
+              {/* Pulse shimmer when image is still loading, static emoji once given up */}
+              {!cachedImage ? (
+                <motion.span
+                  className="text-5xl sm:text-6xl opacity-60"
+                  animate={{ opacity: [0.4, 0.8, 0.4] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  {book.coverEmoji}
+                </motion.span>
+              ) : (
+                <span className="text-5xl sm:text-6xl">{book.coverEmoji}</span>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
 
       {/* Page text */}
       <div
@@ -57,7 +83,9 @@ const ReaderPage = ({ page, pageIndex, book, cachedImage, qteResult, isLastPage,
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           className={`mt-2 px-3 py-1 rounded-full text-xs font-bold ${
-            qteResult ? 'bg-primary/20 text-primary' : 'bg-muted text-muted-foreground'
+            qteResult
+              ? 'bg-primary/20 text-primary'
+              : 'bg-muted text-muted-foreground'
           }`}
         >
           {page.qte.type === 'maze'
@@ -79,7 +107,7 @@ const ReaderPage = ({ page, pageIndex, book, cachedImage, qteResult, isLastPage,
         </motion.button>
       )}
 
-      {/* Page indicator */}
+      {/* Page number */}
       <p className="text-xs text-muted-foreground mt-2 flex-shrink-0">
         {pageIndex + 1} / {book.pages.length}
       </p>
