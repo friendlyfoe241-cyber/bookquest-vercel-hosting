@@ -1,14 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { pageIllustrations } from '@/data/pageIllustrations';
 
-// In-memory cache for the current session (avoids redundant fetches)
+// Module-level cache — persists for the session so re-visiting a book is instant
 const imageCache = new Map<string, string>();
 
 export function getImageCache() {
   return imageCache;
 }
 
-// All pages get an illustration
+// Every page can have an image
 export function shouldHaveImage(_difficulty: string, _pageIndex: number): boolean {
   return true;
 }
@@ -45,62 +46,70 @@ export function useImagePreloader(book: Book | null) {
         setProgress(Math.round((loaded / totalPages) * 100));
       };
 
-      // Catalog books have fixed string IDs (e.g. "adv-1")
-      // Imported books have UUIDs
-      const isImported = /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(book.id);
+      // Catalog books have short string IDs like "adv-1"
+      // Imported books have UUIDs like "3f2a1b..."
+      const isImported = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(book.id);
 
       const loadPage = async (page: Page, idx: number) => {
         const cacheKey = `${book.id}:${idx}`;
 
-        // Already in memory — skip network call
+        // Already loaded this session — skip
         if (imageCache.has(cacheKey)) {
           tick();
           return;
         }
 
+        // ── 1. Use bundled static image if one exists (catalog books only) ──
+        const staticImage = !isImported
+          ? pageIllustrations[book.id]?.[idx]
+          : undefined;
+
+        if (staticImage) {
+          imageCache.set(cacheKey, staticImage);
+          tick();
+          return;
+        }
+
+        // ── 2. Call generate-illustration for pages without a static image ──
         try {
           const payload: Record<string, unknown> = {
             pageText:         page.text,
             imageDescription: page.imageDescription,
           };
 
-          // For catalog books, pass bookId + pageNumber so the edge function
-          // checks Supabase Storage first and stores the result for all users
+          // For catalog books pass bookId + pageNumber so results are cached
+          // in Supabase Storage and shared across all users
           if (!isImported) {
             payload.bookId     = book.id;
             payload.pageNumber = idx;
           }
 
-          const { data, error } = await supabase.functions.invoke('generate-illustration', {
-            body: payload,
-          });
+          const { data, error } = await supabase.functions.invoke(
+            'generate-illustration',
+            { body: payload }
+          );
 
-          if (!error) {
-            // `url`   → persistent Storage URL (catalog books)
-            // `image` → base64 data URL (imported books / storage fallback)
-            const imgSrc = data?.url || data?.image;
-            if (imgSrc) {
+          if (!error && data) {
+            // `url`   → persistent Supabase Storage URL (catalog books)
+            // `image` → base64 data URL (imported books or storage fallback)
+            const imgSrc: string | null = data.url || data.image || null;
+            if (imgSrc && typeof imgSrc === 'string' && imgSrc.length > 10) {
               imageCache.set(cacheKey, imgSrc);
-              try {
-                const img = new Image();
-                img.src = imgSrc;
-                await img.decode().catch(() => {});
-              } catch { /* ignore */ }
             }
           }
         } catch (err) {
-          console.error(`Failed to preload page ${idx}:`, err);
+          // Generation failed — cachedImage stays null → gradient fallback shows
+          console.warn(`Image generation failed for ${book.id} page ${idx}:`, err);
         }
 
         tick();
       };
 
-      // Run 3 pages concurrently — enough for speed, won't hammer Pollinations
-      const pageTasks = book.pages.map((page, idx) => () => loadPage(page, idx));
+      // 3 concurrent requests — fast enough, won't hammer Pollinations rate limits
+      const tasks = book.pages.map((page, idx) => () => loadPage(page, idx));
       const concurrency = 3;
-
-      for (let i = 0; i < pageTasks.length; i += concurrency) {
-        await Promise.all(pageTasks.slice(i, i + concurrency).map(fn => fn()));
+      for (let i = 0; i < tasks.length; i += concurrency) {
+        await Promise.all(tasks.slice(i, i + concurrency).map(fn => fn()));
       }
 
       setReady(true);
