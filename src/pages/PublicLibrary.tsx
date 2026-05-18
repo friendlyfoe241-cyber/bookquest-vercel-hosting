@@ -24,38 +24,11 @@ type Tab = 'browse' | 'import';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Strip standard Project Gutenberg header/footer boilerplate
-function stripGutenbergBoilerplate(text: string): string {
-  const startMarkers = [
-    '*** START OF THE PROJECT GUTENBERG EBOOK',
-    '*** START OF THIS PROJECT GUTENBERG EBOOK',
-    '*END*THE SMALL PRINT',
-  ];
-  const endMarkers = [
-    '*** END OF THE PROJECT GUTENBERG EBOOK',
-    '*** END OF THIS PROJECT GUTENBERG EBOOK',
-    'End of the Project Gutenberg',
-    'End of Project Gutenberg',
-  ];
-
-  let start = 0;
-  for (const marker of startMarkers) {
-    const idx = text.indexOf(marker);
-    if (idx !== -1) { start = text.indexOf('\n', idx) + 1; break; }
-  }
-  let end = text.length;
-  for (const marker of endMarkers) {
-    const idx = text.indexOf(marker, start);
-    if (idx !== -1) { end = idx; break; }
-  }
-  return text.slice(start, end).trim();
-}
-
 function BookCoverPlaceholder({ title }: { title: string }) {
   const colors = [
     'from-amber-400 to-orange-500', 'from-blue-400 to-cyan-500',
     'from-green-400 to-emerald-500', 'from-purple-400 to-pink-500',
-    'from-rose-400 to-red-500', 'from-teal-400 to-blue-500',
+    'from-rose-400 to-red-500',      'from-teal-400 to-blue-500',
     'from-indigo-400 to-violet-500', 'from-yellow-400 to-amber-500',
   ];
   const color = colors[title.charCodeAt(0) % colors.length];
@@ -70,13 +43,13 @@ function BookCoverPlaceholder({ title }: { title: string }) {
 
 function BrowseTab() {
   const navigate = useNavigate();
-  const [query, setQuery]         = useState('');
-  const [results, setResults]     = useState<GutenbergBook[]>([]);
-  const [loading, setLoading]     = useState(false);
-  const [searched, setSearched]   = useState(false);
-  const [importing, setImporting] = useState<number | null>(null);
+  const [query, setQuery]           = useState('');
+  const [results, setResults]       = useState<GutenbergBook[]>([]);
+  const [loading, setLoading]       = useState(false);
+  const [searched, setSearched]     = useState(false);
+  const [importing, setImporting]   = useState<number | null>(null);
   const [importStep, setImportStep] = useState('');
-  const [imported, setImported]   = useState<Set<number>>(new Set());
+  const [imported, setImported]     = useState<Set<number>>(new Set());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = useCallback(async (q: string) => {
@@ -108,52 +81,35 @@ function BrowseTab() {
     setImporting(book.id);
 
     try {
-      // ── Step 1: Fetch text from Gutenberg in the browser ──────────────────
-      // Doing this client-side avoids server-to-server blocks that Gutenberg
-      // applies to cloud datacenter IPs. Browsers can fetch it freely.
+      // ── Step 1: Fetch book text via our proxy edge function ───────────────
+      // Fetching from Gutenberg directly (client or server) is unreliable due
+      // to IP blocks and CORS issues. Our proxy tries multiple URL formats
+      // with realistic browser headers.
       setImportStep('Downloading book…');
 
-      let rawText = '';
-      const urlsToTry = [
-        book.textUrl,
-        book.textUrl.replace('www.gutenberg.org', 'gutenberg.org'),
-      ];
+      const { data: fetchData, error: fetchError } = await supabase.functions.invoke(
+        'fetch-book-text',
+        { body: { textUrl: book.textUrl, gutenbergId: book.id } },
+      );
 
-      let fetchOk = false;
-      for (const url of urlsToTry) {
-        try {
-          const res = await fetch(url);
-          if (res.ok) {
-            rawText = await res.text();
-            fetchOk = true;
-            break;
-          }
-        } catch { /* try next */ }
+      if (fetchError || !fetchData?.text) {
+        throw new Error(
+          fetchData?.error ||
+          'Could not download book text. Gutenberg may be temporarily unavailable — please try again in a moment.',
+        );
       }
 
-      if (!fetchOk || rawText.length < 200) {
-        throw new Error('Could not download the book text. Try a different book.');
-      }
-
-      // ── Step 2: Strip boilerplate + trim to first ~12,000 chars ──────────
-      const clean   = stripGutenbergBoilerplate(rawText);
-      const excerpt = clean.slice(0, 12000);
-
-      if (excerpt.length < 200) {
-        throw new Error('Not enough readable text found in this book.');
-      }
-
-      // ── Step 3: Send text to the existing process-imported-book function ──
+      // ── Step 2: Process with AI via existing edge function ────────────────
       setImportStep('Processing with AI…');
 
       const { data, error } = await supabase.functions.invoke('process-imported-book', {
-        body: { title: book.title, text: excerpt },
+        body: { title: book.title, text: fetchData.text },
       });
 
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
 
-      // ── Step 4: Save to localStorage so Reader can find it ────────────────
+      // ── Step 3: Save to localStorage so the Reader can find it ────────────
       const stored = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
       stored.push({
         id:         data.bookId,
@@ -217,7 +173,9 @@ function BrowseTab() {
           <div className="text-center py-12 text-muted-foreground">
             <Search className="w-10 h-10 mx-auto mb-3 opacity-40" />
             <p className="font-medium">Search for a classic</p>
-            <p className="text-sm mt-1">Try "Sherlock Holmes", "Jules Verne", or "Alice"</p>
+            <p className="text-sm mt-1">
+              Try "Sherlock Holmes", "Jules Verne", or "Alice in Wonderland"
+            </p>
           </div>
         )}
 
@@ -237,9 +195,7 @@ function BrowseTab() {
                     src={book.coverUrl}
                     alt={book.title}
                     className="w-full h-full object-cover"
-                    onError={e => {
-                      (e.target as HTMLImageElement).style.display = 'none';
-                    }}
+                    onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
                   />
                 ) : (
                   <BookCoverPlaceholder title={book.title} />
@@ -256,7 +212,10 @@ function BrowseTab() {
                   {book.subjects.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-1">
                       {book.subjects.slice(0, 2).map(s => (
-                        <span key={s} className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground truncate max-w-[120px]">
+                        <span
+                          key={s}
+                          className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground truncate max-w-[120px]"
+                        >
                           {s}
                         </span>
                       ))}
@@ -397,7 +356,10 @@ const PublicLibrary = () => {
     <div className="h-dvh bg-background flex flex-col">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 pt-4 pb-3 border-b border-border flex-shrink-0">
-        <button onClick={() => navigate(-1)} className="p-1.5 rounded-xl hover:bg-muted transition-colors">
+        <button
+          onClick={() => navigate(-1)}
+          className="p-1.5 rounded-xl hover:bg-muted transition-colors"
+        >
           <ArrowLeft className="w-5 h-5" />
         </button>
         <div className="flex-1">
