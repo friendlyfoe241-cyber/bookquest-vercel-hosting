@@ -24,7 +24,34 @@ type Tab = 'browse' | 'import';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function BookCoverPlaceholder({ title, emoji = '📖' }: { title: string; emoji?: string }) {
+// Strip standard Project Gutenberg header/footer boilerplate
+function stripGutenbergBoilerplate(text: string): string {
+  const startMarkers = [
+    '*** START OF THE PROJECT GUTENBERG EBOOK',
+    '*** START OF THIS PROJECT GUTENBERG EBOOK',
+    '*END*THE SMALL PRINT',
+  ];
+  const endMarkers = [
+    '*** END OF THE PROJECT GUTENBERG EBOOK',
+    '*** END OF THIS PROJECT GUTENBERG EBOOK',
+    'End of the Project Gutenberg',
+    'End of Project Gutenberg',
+  ];
+
+  let start = 0;
+  for (const marker of startMarkers) {
+    const idx = text.indexOf(marker);
+    if (idx !== -1) { start = text.indexOf('\n', idx) + 1; break; }
+  }
+  let end = text.length;
+  for (const marker of endMarkers) {
+    const idx = text.indexOf(marker, start);
+    if (idx !== -1) { end = idx; break; }
+  }
+  return text.slice(start, end).trim();
+}
+
+function BookCoverPlaceholder({ title }: { title: string }) {
   const colors = [
     'from-amber-400 to-orange-500', 'from-blue-400 to-cyan-500',
     'from-green-400 to-emerald-500', 'from-purple-400 to-pink-500',
@@ -34,7 +61,7 @@ function BookCoverPlaceholder({ title, emoji = '📖' }: { title: string; emoji?
   const color = colors[title.charCodeAt(0) % colors.length];
   return (
     <div className={`w-full h-full bg-gradient-to-br ${color} flex items-center justify-center`}>
-      <span className="text-3xl">{emoji}</span>
+      <span className="text-3xl">📖</span>
     </div>
   );
 }
@@ -48,6 +75,7 @@ function BrowseTab() {
   const [loading, setLoading]     = useState(false);
   const [searched, setSearched]   = useState(false);
   const [importing, setImporting] = useState<number | null>(null);
+  const [importStep, setImportStep] = useState('');
   const [imported, setImported]   = useState<Set<number>>(new Set());
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -78,14 +106,54 @@ function BrowseTab() {
 
   const handleImport = async (book: GutenbergBook) => {
     setImporting(book.id);
+
     try {
-      const { data, error } = await supabase.functions.invoke('import-public-book', {
-        body: { gutenbergId: book.id, title: book.title, textUrl: book.textUrl },
+      // ── Step 1: Fetch text from Gutenberg in the browser ──────────────────
+      // Doing this client-side avoids server-to-server blocks that Gutenberg
+      // applies to cloud datacenter IPs. Browsers can fetch it freely.
+      setImportStep('Downloading book…');
+
+      let rawText = '';
+      const urlsToTry = [
+        book.textUrl,
+        book.textUrl.replace('www.gutenberg.org', 'gutenberg.org'),
+      ];
+
+      let fetchOk = false;
+      for (const url of urlsToTry) {
+        try {
+          const res = await fetch(url);
+          if (res.ok) {
+            rawText = await res.text();
+            fetchOk = true;
+            break;
+          }
+        } catch { /* try next */ }
+      }
+
+      if (!fetchOk || rawText.length < 200) {
+        throw new Error('Could not download the book text. Try a different book.');
+      }
+
+      // ── Step 2: Strip boilerplate + trim to first ~12,000 chars ──────────
+      const clean   = stripGutenbergBoilerplate(rawText);
+      const excerpt = clean.slice(0, 12000);
+
+      if (excerpt.length < 200) {
+        throw new Error('Not enough readable text found in this book.');
+      }
+
+      // ── Step 3: Send text to the existing process-imported-book function ──
+      setImportStep('Processing with AI…');
+
+      const { data, error } = await supabase.functions.invoke('process-imported-book', {
+        body: { title: book.title, text: excerpt },
       });
+
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
 
-      // Save to localStorage so the Reader can find it
+      // ── Step 4: Save to localStorage so Reader can find it ────────────────
       const stored = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
       stored.push({
         id:         data.bookId,
@@ -102,10 +170,12 @@ function BrowseTab() {
       setImported(prev => new Set(prev).add(book.id));
       toast.success(`"${book.title}" imported! 📖`);
       navigate(`/read/${data.bookId}`);
+
     } catch (err: any) {
       toast.error(err.message || 'Import failed. Please try another book.');
     } finally {
       setImporting(null);
+      setImportStep('');
     }
   };
 
@@ -167,9 +237,8 @@ function BrowseTab() {
                     src={book.coverUrl}
                     alt={book.title}
                     className="w-full h-full object-cover"
-                    onError={(e) => {
+                    onError={e => {
                       (e.target as HTMLImageElement).style.display = 'none';
-                      (e.target as HTMLImageElement).parentElement!.classList.add('show-placeholder');
                     }}
                   />
                 ) : (
@@ -205,18 +274,18 @@ function BrowseTab() {
                     <span className="flex items-center gap-1 text-xs text-primary font-medium">
                       <CheckCircle className="w-3.5 h-3.5" /> Imported
                     </span>
+                  ) : importing === book.id ? (
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      {importStep || 'Importing…'}
+                    </span>
                   ) : (
                     <Button
                       size="sm"
                       onClick={() => handleImport(book)}
-                      disabled={importing === book.id}
                       className="h-7 px-3 text-xs rounded-lg"
                     >
-                      {importing === book.id ? (
-                        <><Loader2 className="w-3 h-3 animate-spin mr-1" /> Importing…</>
-                      ) : (
-                        'Import & Read'
-                      )}
+                      Import & Read
                     </Button>
                   )}
                 </div>
@@ -229,7 +298,7 @@ function BrowseTab() {
   );
 }
 
-// ── Import Text tab (existing functionality) ──────────────────────────────────
+// ── Import Text tab ───────────────────────────────────────────────────────────
 
 function ImportTextTab() {
   const navigate = useNavigate();
@@ -309,7 +378,7 @@ function ImportTextTab() {
         className="w-full h-11 rounded-xl font-bold"
       >
         {loading ? (
-          <><Loader2 className="w-4 h-4 animate-spin mr-2" /> Processing…</>
+          <><Loader2 className="w-4 h-4 animate-spin mr-2" />Processing…</>
         ) : (
           'Import Book 📚'
         )}
@@ -321,7 +390,7 @@ function ImportTextTab() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const PublicLibrary = () => {
-  const navigate   = useNavigate();
+  const navigate      = useNavigate();
   const [tab, setTab] = useState<Tab>('browse');
 
   return (
