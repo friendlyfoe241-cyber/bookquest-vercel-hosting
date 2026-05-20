@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -50,10 +50,9 @@ function BrowseTab() {
   const [importing, setImporting]   = useState<number | null>(null);
   const [importStep, setImportStep] = useState('');
   const [imported, setImported]     = useState<Set<number>>(new Set());
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = useCallback(async (q: string) => {
-    if (q.trim().length < 2) { setResults([]); setSearched(false); return; }
+    if (q.trim().length < 2) { toast.error('Please enter at least 2 characters.'); return; }
     setLoading(true);
     setSearched(true);
     try {
@@ -71,10 +70,11 @@ function BrowseTab() {
   }, []);
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setQuery(val);
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => search(val), 600);
+    setQuery(e.target.value);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') search(query);
   };
 
   const handleImport = async (book: GutenbergBook) => {
@@ -82,9 +82,6 @@ function BrowseTab() {
 
     try {
       // ── Step 1: Fetch book text via our proxy edge function ───────────────
-      // Fetching from Gutenberg directly (client or server) is unreliable due
-      // to IP blocks and CORS issues. Our proxy tries multiple URL formats
-      // with realistic browser headers.
       setImportStep('Downloading book…');
 
       const { data: fetchData, error: fetchError } = await supabase.functions.invoke(
@@ -99,17 +96,24 @@ function BrowseTab() {
         );
       }
 
-      // ── Step 2: Process with AI via existing edge function ────────────────
+      // ── Step 2: Truncate to 50k chars before sending to AI ────────────────
+      // Full Gutenberg texts can be 300KB–2MB; the edge function only needs
+      // the opening ~4k chars for analysis, but we send up to 50k for page splitting.
+      const truncatedText = typeof fetchData.text === 'string'
+        ? fetchData.text.slice(0, 50000)
+        : String(fetchData.text).slice(0, 50000);
+
+      // ── Step 3: Process with AI ───────────────────────────────────────────
       setImportStep('Processing with AI…');
 
       const { data, error } = await supabase.functions.invoke('process-imported-book', {
-        body: { title: book.title, text: fetchData.text },
+        body: { title: book.title, text: truncatedText },
       });
 
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
 
-      // ── Step 3: Save to localStorage so the Reader can find it ────────────
+      // ── Step 4: Save to localStorage so the Reader can find it ────────────
       const stored = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
       stored.push({
         id:         data.bookId,
@@ -139,14 +143,27 @@ function BrowseTab() {
     <div className="flex flex-col h-full">
       {/* Search bar */}
       <div className="p-4 pb-2">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={handleInput}
-            placeholder="Search 70,000+ public domain books…"
-            className="pl-10 rounded-xl h-11"
-          />
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={handleInput}
+              onKeyDown={handleKeyDown}
+              placeholder="Search 70,000+ public domain books…"
+              className="pl-10 rounded-xl h-11"
+            />
+          </div>
+          <Button
+            onClick={() => search(query)}
+            disabled={loading}
+            className="h-11 px-4 rounded-xl flex-shrink-0"
+          >
+            {loading
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <Search className="w-4 h-4" />
+            }
+          </Button>
         </div>
         <p className="text-xs text-muted-foreground mt-2 px-1">
           Powered by Project Gutenberg — classic literature, free forever
