@@ -201,6 +201,33 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
 
     const result = JSON.parse(toolCall.function.arguments);
 
+    // ── Build a Table of Contents from the pages ──────────────────────────
+    // A chapter-heading page has very short text matching a heading pattern.
+    // We find those pages, then point each TOC entry at the NEXT page that has
+    // substantial content — skipping the heading separator itself.
+    function buildTableOfContents(pages: Array<{ text: string }>) {
+      const HEADING_RE = /^(CHAPTER\s+[IVXLCDM0-9]+\.?|[IVXLCDM]{1,7}\.\s+\S|\d+\.\s+\S)/i;
+      const toc: Array<{ title: string; pageIndex: number }> = [];
+
+      for (let i = 0; i < pages.length; i++) {
+        const text = (pages[i]?.text || "").trim();
+        // Chapter-heading separator: short AND matches heading at start
+        if (text.length <= 200 && HEADING_RE.test(text)) {
+          // The first line is the chapter title
+          const headingTitle = text.split(/\n/)[0].trim();
+          // Find the next page with real content (> 200 chars)
+          let contentPage = i + 1;
+          while (contentPage < pages.length && (pages[contentPage]?.text || "").trim().length <= 200) {
+            contentPage++;
+          }
+          // Fall back to i+1 if we ran out of pages
+          const targetPage = contentPage < pages.length ? contentPage : Math.min(i + 1, pages.length - 1);
+          toc.push({ title: headingTitle, pageIndex: targetPage });
+        }
+      }
+      return toc;
+    }
+
     if (!result.is_appropriate) {
       return new Response(
         JSON.stringify({
@@ -225,13 +252,32 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
     ];
     const coverColor = coverColors[Math.floor(Math.random() * coverColors.length)];
 
+    // Build TOC and, if chapters were found, prepend a contents page.
+    // TOC indices are shifted by +1 to account for the new page 0.
+    const rawPages: Array<{ text: string; imageDescription: string }> = result.pages || [];
+    const toc = buildTableOfContents(rawPages);
+
+    let finalPages: Array<Record<string, unknown>>;
+    if (toc.length >= 2) {
+      const adjustedToc = toc.map(entry => ({ ...entry, pageIndex: entry.pageIndex + 1 }));
+      const contentsPage = {
+        isContentsPage: true,
+        tableOfContents: adjustedToc,
+        text: title + " — Contents",
+        imageDescription: "Illustrated table of contents for " + title,
+      };
+      finalPages = [contentsPage, ...rawPages];
+    } else {
+      finalPages = rawPages;
+    }
+
     const { data: insertedBook, error: insertError } = await supabase
       .from("imported_books")
       .insert({
         user_id: user.id,
         title,
         content_text: text.slice(0, 50000),
-        pages: result.pages || [],
+        pages: finalPages,
         quiz: result.quiz || [],
         cover_emoji: result.cover_emoji || "📖",
         genre: result.genre || "Adventure",
@@ -255,7 +301,7 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
         difficulty: result.difficulty,
         coverEmoji: result.cover_emoji,
         coverColor,
-        pages: result.pages,
+        pages: finalPages,
         quiz: result.quiz,
       }),
       {

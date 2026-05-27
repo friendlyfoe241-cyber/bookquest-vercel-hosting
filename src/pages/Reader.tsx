@@ -40,13 +40,35 @@ const Reader = () => {
   const [qteResults,   setQteResults]   = useState<Record<number, boolean>>({});
   const [loadingMore,  setLoadingMore]  = useState(false);
 
-  // Jump to a specific page by scrolling the snap container
+  // Returns true if a page looks like a chapter-title separator:
+  //   very short text that is just a heading like "III. A Case of Identity"
+  //   with no real paragraph content below it.
+  const isChapterTitlePage = useCallback((p: any): boolean => {
+    if (!p?.text) return false;
+    const text = p.text.trim();
+    // Short overall AND matches a chapter heading pattern at the start
+    if (text.length > 200) return false;
+    return /^(CHAPTER\s+[IVXLCDM0-9]+\.?|[IVXLCDM]{1,7}\.\s+\S)/i.test(text);
+  }, []);
+
+  // Jump to a specific page by scrolling the snap container.
+  // If the target page is a chapter-title separator, skip forward to the
+  // first page that contains actual content.
   const jumpToPage = useCallback((pageIndex: number) => {
     const container = scrollRef.current;
-    if (!container) return;
-    container.scrollTo({ top: pageIndex * container.clientHeight, behavior: 'smooth' });
-    setCurrentPage(pageIndex);
-  }, []);
+    if (!container || !book) return;
+
+    let target = pageIndex;
+    // Walk forward past any chapter-title separator pages (max 5 steps)
+    for (let i = 0; i < 5; i++) {
+      if (target >= book.pages.length) break;
+      if (!isChapterTitlePage(book.pages[target])) break;
+      target++;
+    }
+
+    container.scrollTo({ top: target * container.clientHeight, behavior: 'smooth' });
+    setCurrentPage(target);
+  }, [book, isChapterTitlePage]);
 
   const page = book?.pages[currentPage];
 
