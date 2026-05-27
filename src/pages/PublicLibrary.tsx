@@ -118,7 +118,7 @@ function BrowseTab() {
       stored.push({
         id:         data.bookId,
         title:      data.title,
-        pages:      data.pages,
+        pages:      data.pages,        // pages[0] may have isContentsPage + tableOfContents
         quiz:       data.quiz,
         coverEmoji: data.coverEmoji,
         coverColor: data.coverColor,
@@ -126,6 +126,25 @@ function BrowseTab() {
         difficulty: data.difficulty,
       });
       localStorage.setItem('bookquest-imported', JSON.stringify(stored));
+
+      // ── Step 5: Store remaining text so the user can load Part 2 later ────
+      // Full Gutenberg texts are often 300KB+; we only processed the first 50k chars.
+      const fullText = typeof fetchData.text === 'string' ? fetchData.text : String(fetchData.text);
+      if (fullText.length > 50000) {
+        try {
+          localStorage.setItem(`bookquest-remaining-${data.bookId}`, JSON.stringify({
+            title:      book.title,
+            gutenbergId: book.id,
+            textUrl:    book.textUrl,
+            text:       fullText.slice(50000),   // everything after the first chunk
+            partNumber: 1,
+            coverEmoji: data.coverEmoji,
+            coverColor: data.coverColor,
+          }));
+        } catch {
+          // localStorage full — skip silently, "Continue Reading" just won't appear
+        }
+      }
 
       setImported(prev => new Set(prev).add(book.id));
       toast.success(`"${book.title}" imported! 📖`);
