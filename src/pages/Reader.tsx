@@ -66,7 +66,13 @@ const Reader = () => {
       target++;
     }
 
-    container.scrollTo({ top: target * container.clientHeight, behavior: 'smooth' });
+    // Use instant scroll (scrollTop assignment) rather than scrollTo({ behavior: 'smooth' }).
+    // snap-y snap-mandatory + smooth scroll can cause the browser to settle on a
+    // different snap point than intended, leaving the header counter (currentPage)
+    // and the per-page bottom counter (pageIndex) permanently out of sync.
+    // An instant jump fires the scroll listener exactly once at the correct final
+    // position, so both counters always agree.
+    container.scrollTop = target * container.clientHeight;
     setCurrentPage(target);
   }, [book, isChapterTitlePage]);
 
@@ -205,7 +211,6 @@ const Reader = () => {
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-scroll snap-y snap-mandatory"
-        style={{ scrollBehavior: 'smooth' }}
       >
         {book.pages.map((p: any, i: number) => {
           // Page 0 with ToC gets the special Contents renderer
