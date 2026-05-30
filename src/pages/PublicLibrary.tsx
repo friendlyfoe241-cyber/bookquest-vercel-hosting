@@ -39,6 +39,71 @@ function BookCoverPlaceholder({ title }: { title: string }) {
   );
 }
 
+// ── Curated featured classics (shown before any search) ──────────────────────
+// Uses real Project Gutenberg IDs so Import & Read works immediately.
+const FEATURED_BOOKS: GutenbergBook[] = [
+  {
+    id: 11,
+    title: "Alice's Adventures in Wonderland",
+    authors: "Carroll, Lewis",
+    coverUrl: "https://www.gutenberg.org/cache/epub/11/pg11.cover.medium.jpg",
+    subjects: ["Fantasy", "Children's literature"],
+    downloadCount: 43000,
+    hasText: true,
+    textUrl: "https://www.gutenberg.org/cache/epub/11/pg11.txt",
+  },
+  {
+    id: 1661,
+    title: "The Adventures of Sherlock Holmes",
+    authors: "Doyle, Arthur Conan",
+    coverUrl: "https://www.gutenberg.org/cache/epub/1661/pg1661.cover.medium.jpg",
+    subjects: ["Detective and mystery stories", "Holmes, Sherlock (Fictitious character)"],
+    downloadCount: 43408,
+    hasText: true,
+    textUrl: "https://www.gutenberg.org/cache/epub/1661/pg1661.txt",
+  },
+  {
+    id: 1342,
+    title: "Pride and Prejudice",
+    authors: "Austen, Jane",
+    coverUrl: "https://www.gutenberg.org/cache/epub/1342/pg1342.cover.medium.jpg",
+    subjects: ["Domestic fiction", "Romance"],
+    downloadCount: 40000,
+    hasText: true,
+    textUrl: "https://www.gutenberg.org/cache/epub/1342/pg1342.txt",
+  },
+  {
+    id: 120,
+    title: "Treasure Island",
+    authors: "Stevenson, Robert Louis",
+    coverUrl: "https://www.gutenberg.org/cache/epub/120/pg120.cover.medium.jpg",
+    subjects: ["Adventure stories", "Pirates"],
+    downloadCount: 20000,
+    hasText: true,
+    textUrl: "https://www.gutenberg.org/cache/epub/120/pg120.txt",
+  },
+  {
+    id: 84,
+    title: "Frankenstein; Or, The Modern Prometheus",
+    authors: "Shelley, Mary Wollstonecraft",
+    coverUrl: "https://www.gutenberg.org/cache/epub/84/pg84.cover.medium.jpg",
+    subjects: ["Science fiction", "Horror"],
+    downloadCount: 25000,
+    hasText: true,
+    textUrl: "https://www.gutenberg.org/cache/epub/84/pg84.txt",
+  },
+  {
+    id: 2701,
+    title: "Moby Dick; Or, The Whale",
+    authors: "Melville, Herman",
+    coverUrl: "https://www.gutenberg.org/cache/epub/2701/pg2701.cover.medium.jpg",
+    subjects: ["Adventure stories", "Sea stories"],
+    downloadCount: 15000,
+    hasText: true,
+    textUrl: "https://www.gutenberg.org/cache/epub/2701/pg2701.txt",
+  },
+];
+
 // ── Browse Gutenberg tab ──────────────────────────────────────────────────────
 
 function BrowseTab() {
@@ -288,12 +353,89 @@ function BrowseTab() {
         )}
 
         {!loading && !searched && (
-          <div className="text-center py-12 text-muted-foreground">
-            <Search className="w-10 h-10 mx-auto mb-3 opacity-40" />
-            <p className="font-medium">Search for a classic</p>
-            <p className="text-sm mt-1">
-              Try "Sherlock Holmes", "Jules Verne", or "Alice in Wonderland"
-            </p>
+          <div>
+            {/* Prompt */}
+            <div className="text-center pt-8 pb-5 text-muted-foreground">
+              <Search className="w-8 h-8 mx-auto mb-2 opacity-40" />
+              <p className="font-medium text-foreground">Search for a classic</p>
+              <p className="text-sm mt-1">
+                Try "Sherlock Holmes", "Jules Verne", or "Alice in Wonderland"
+              </p>
+            </div>
+
+            {/* Featured classics */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Popular Classics
+              </span>
+              <div className="flex-1 h-px bg-border/60" />
+            </div>
+
+            <AnimatePresence>
+              {FEATURED_BOOKS.map((book, i) => (
+                <motion.div
+                  key={book.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.06 }}
+                  className="flex gap-3 py-3 border-b border-border/50 last:border-0"
+                >
+                  {/* Cover */}
+                  <div className="w-14 h-20 rounded-lg overflow-hidden flex-shrink-0 shadow">
+                    {book.coverUrl ? (
+                      <img
+                        src={book.coverUrl}
+                        alt={book.title}
+                        className="w-full h-full object-cover"
+                        onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                      />
+                    ) : (
+                      <BookCoverPlaceholder title={book.title} />
+                    )}
+                  </div>
+
+                  {/* Info */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-between py-0.5">
+                    <div>
+                      <h3 className="font-semibold text-sm leading-tight line-clamp-2 text-foreground">
+                        {book.title}
+                      </h3>
+                      <p className="text-xs text-muted-foreground mt-0.5 truncate">{book.authors}</p>
+                      {book.subjects.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {book.subjects.slice(0, 2).map(s => (
+                            <span
+                              key={s}
+                              className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground truncate max-w-[120px]"
+                            >
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-[11px] text-muted-foreground flex items-center gap-1">
+                        <Download className="w-3 h-3" />
+                        {book.downloadCount.toLocaleString()}
+                      </span>
+                      <Button
+                        size="sm"
+                        onClick={() => handleImport(book)}
+                        disabled={importing !== null || imported.has(book.id)}
+                        className="h-7 text-xs px-3 rounded-lg"
+                      >
+                        {imported.has(book.id) ? (
+                          <><CheckCircle className="w-3 h-3 mr-1" /> Added</>
+                        ) : importing === book.id ? (
+                          <><Loader2 className="w-3 h-3 mr-1 animate-spin" />{importStep || 'Loading…'}</>
+                        ) : 'Import & Read'}
+                      </Button>
+                    </div>
+                  </div>
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         )}
 
