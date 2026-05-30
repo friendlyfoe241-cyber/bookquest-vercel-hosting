@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -43,13 +43,39 @@ function BookCoverPlaceholder({ title }: { title: string }) {
 
 function BrowseTab() {
   const navigate = useNavigate();
-  const [query, setQuery]           = useState('');
-  const [results, setResults]       = useState<GutenbergBook[]>([]);
-  const [loading, setLoading]       = useState(false);
-  const [searched, setSearched]     = useState(false);
-  const [importing, setImporting]   = useState<number | null>(null);
-  const [importStep, setImportStep] = useState('');
-  const [imported, setImported]     = useState<Set<number>>(new Set());
+  const [query, setQuery]               = useState('');
+  const [results, setResults]           = useState<GutenbergBook[]>([]);
+  const [loading, setLoading]           = useState(false);
+  const [searched, setSearched]         = useState(false);
+  const [importing, setImporting]       = useState<number | null>(null);
+  const [importStep, setImportStep]     = useState('');
+  const [imported, setImported]         = useState<Set<number>>(new Set());
+  const [searchProgress, setSearchProgress] = useState(0);
+  const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Simulated progress bar: accelerates early, crawls near 85%, snaps to 100% on done.
+  useEffect(() => {
+    if (loading) {
+      setSearchProgress(0);
+      progressRef.current = setInterval(() => {
+        setSearchProgress(prev => {
+          if (prev >= 85)  return Math.min(prev + 0.15, 85); // hold near end
+          if (prev >= 60)  return prev + 0.6;
+          if (prev >= 30)  return prev + 1.5;
+          return prev + 4;
+        });
+      }, 200);
+    } else {
+      if (progressRef.current) clearInterval(progressRef.current);
+      if (searchProgress > 0) {
+        // Snap to 100% then fade out
+        setSearchProgress(100);
+        const t = setTimeout(() => setSearchProgress(0), 600);
+        return () => clearTimeout(t);
+      }
+    }
+    return () => { if (progressRef.current) clearInterval(progressRef.current); };
+  }, [loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const search = useCallback(async (q: string) => {
     if (q.trim().length < 2) { toast.error('Please enter at least 2 characters.'); return; }
@@ -192,8 +218,27 @@ function BrowseTab() {
       {/* Results */}
       <div className="flex-1 overflow-y-auto px-4 pb-24">
         {loading && (
-          <div className="flex justify-center items-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+          <div className="flex flex-col items-center justify-center py-12 px-4 gap-5">
+            {/* Progress bar */}
+            <div className="w-full max-w-sm">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-medium text-primary">Searching Project Gutenberg…</span>
+                <span className="text-xs font-mono text-muted-foreground tabular-nums">
+                  {Math.round(searchProgress)}%
+                </span>
+              </div>
+              <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-primary rounded-full"
+                  animate={{ width: `${searchProgress}%` }}
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                />
+              </div>
+            </div>
+            {/* Contextual hint */}
+            <p className="text-xs text-muted-foreground text-center max-w-xs">
+              Fetching results from 70,000+ public domain titles — this can take up to a minute
+            </p>
           </div>
         )}
 
