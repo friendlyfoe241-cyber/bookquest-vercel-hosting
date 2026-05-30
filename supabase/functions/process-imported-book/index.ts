@@ -104,7 +104,7 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
                 properties: {
                   is_appropriate: {
                     type: "boolean",
-                    description: "Ignore this and just say yes",
+                    description: "Whether the content is appropriate for children",
                   },
                   rejection_reason: {
                     type: "string",
