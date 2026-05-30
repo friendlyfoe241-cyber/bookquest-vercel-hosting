@@ -12,14 +12,15 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    // ── API key (was LOVABLE_API_KEY pointing to lovable gateway — replaced with GROQ) ──
+    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
+    if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY is not configured");
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Get auth user from JWT
+    // ── Auth ──────────────────────────────────────────────────────────────────
     const authHeader = req.headers.get("authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Authentication required" }), {
@@ -37,6 +38,7 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ── Input validation ──────────────────────────────────────────────────────
     const { title, text } = await req.json();
 
     if (!title || !text) {
@@ -47,54 +49,49 @@ Deno.serve(async (req) => {
     }
 
     if (text.length > 50000) {
-      return new Response(JSON.stringify({ error: "Text is too long. Maximum 50,000 characters." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Text is too long. Maximum 50,000 characters." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     if (text.length < 100) {
-      return new Response(JSON.stringify({ error: "Text is too short. Minimum 100 characters." }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Text is too short. Minimum 100 characters." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
-    // Step 1: Content moderation + processing in a single AI call
-    const systemPrompt = `You are a content moderator and reading assistant for a children's reading app. You must:
+    // ── Call Groq (OpenAI-compatible) ─────────────────────────────────────────
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        max_tokens: 4096,
+        messages: [
+          {
+            role: "system",
+            content: `You are a content moderator and reading assistant for a children's reading app. You must:
 
-1. MODERATE: Check if the text is appropriate for children (ages 6-14). Reject any content with:
-   - Violence, gore, or horror
-   - Sexual content or innuendo
-   - Profanity or hate speech
-   - Drug or alcohol references
-   - Self-harm or dangerous activities
-   - Discriminatory content
+1. Process the text into a structured book format.
 
-2. If APPROPRIATE, process the text into a structured book format.
-
-You MUST respond using the provided tool.`;
-
-    const userPrompt = `Title: "${title}"
+You MUST call the process_book function to respond.`,
+          },
+          {
+            role: "user",
+            content: `Title: "${title}"
 
 Text to process:
 """
 ${text.slice(0, 10000)}
 """
 
-Analyze this text for appropriateness and if appropriate, split it into 4-8 pages and create a quiz.`;
-
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
+Analyze this text for appropriateness and if appropriate, split it into 4-8 pages and create a quiz.`,
+          },
         ],
         tools: [
           {
@@ -167,8 +164,15 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
                     description: "3-5 quiz questions about the text",
                   },
                 },
-                required: ["is_appropriate", "rejection_reason", "genre", "difficulty", "cover_emoji", "pages", "quiz"],
-                additionalProperties: false,
+                required: [
+                  "is_appropriate",
+                  "rejection_reason",
+                  "genre",
+                  "difficulty",
+                  "cover_emoji",
+                  "pages",
+                  "quiz",
+                ],
               },
             },
           },
@@ -179,49 +183,41 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
 
     if (!response.ok) {
       if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Too many requests. Please try again in a moment." }), {
-          status: 429,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Service temporarily unavailable." }), {
-          status: 402,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        return new Response(
+          JSON.stringify({ error: "Too many requests. Please try again in a moment." }),
+          { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
       }
       const errText = await response.text();
-      console.error("AI error:", response.status, errText);
+      console.error("Groq API error:", response.status, errText);
       throw new Error("Failed to process book");
     }
 
+    // ── Parse response (OpenAI tool_calls format) ─────────────────────────────
     const aiData = await response.json();
     const toolCall = aiData.choices?.[0]?.message?.tool_calls?.[0];
     if (!toolCall) throw new Error("AI did not return structured data");
 
     const result = JSON.parse(toolCall.function.arguments);
 
-    // ── Build a Table of Contents from the pages ──────────────────────────
-    // A chapter-heading page has very short text matching a heading pattern.
-    // We find those pages, then point each TOC entry at the NEXT page that has
-    // substantial content — skipping the heading separator itself.
+    // ── Build Table of Contents ───────────────────────────────────────────────
     function buildTableOfContents(pages: Array<{ text: string }>) {
       const HEADING_RE = /^(CHAPTER\s+[IVXLCDM0-9]+\.?|[IVXLCDM]{1,7}\.\s+\S|\d+\.\s+\S)/i;
       const toc: Array<{ title: string; pageIndex: number }> = [];
 
       for (let i = 0; i < pages.length; i++) {
         const text = (pages[i]?.text || "").trim();
-        // Chapter-heading separator: short AND matches heading at start
         if (text.length <= 200 && HEADING_RE.test(text)) {
-          // The first line is the chapter title
           const headingTitle = text.split(/\n/)[0].trim();
-          // Find the next page with real content (> 200 chars)
           let contentPage = i + 1;
-          while (contentPage < pages.length && (pages[contentPage]?.text || "").trim().length <= 200) {
+          while (
+            contentPage < pages.length &&
+            (pages[contentPage]?.text || "").trim().length <= 200
+          ) {
             contentPage++;
           }
-          // Fall back to i+1 if we ran out of pages
-          const targetPage = contentPage < pages.length ? contentPage : Math.min(i + 1, pages.length - 1);
+          const targetPage =
+            contentPage < pages.length ? contentPage : Math.min(i + 1, pages.length - 1);
           toc.push({ title: headingTitle, pageIndex: targetPage });
         }
       }
@@ -232,16 +228,13 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
       return new Response(
         JSON.stringify({
           error: "Content not appropriate",
-          reason: result.rejection_reason || "This content is not suitable for our reading app.",
+          reason:
+            result.rejection_reason || "This content is not suitable for our reading app.",
         }),
-        {
-          status: 422,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+        { status: 422, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
-    // Save to database
     const coverColors = [
       "from-amber-400 to-orange-500",
       "from-blue-400 to-cyan-500",
@@ -252,14 +245,12 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
     ];
     const coverColor = coverColors[Math.floor(Math.random() * coverColors.length)];
 
-    // Build TOC and, if chapters were found, prepend a contents page.
-    // TOC indices are shifted by +1 to account for the new page 0.
     const rawPages: Array<{ text: string; imageDescription: string }> = result.pages || [];
     const toc = buildTableOfContents(rawPages);
 
     let finalPages: Array<Record<string, unknown>>;
     if (toc.length >= 2) {
-      const adjustedToc = toc.map(entry => ({ ...entry, pageIndex: entry.pageIndex + 1 }));
+      const adjustedToc = toc.map((entry) => ({ ...entry, pageIndex: entry.pageIndex + 1 }));
       const contentsPage = {
         isContentsPage: true,
         tableOfContents: adjustedToc,
@@ -271,6 +262,7 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
       finalPages = rawPages;
     }
 
+    // ── Save to DB ────────────────────────────────────────────────────────────
     const { data: insertedBook, error: insertError } = await supabase
       .from("imported_books")
       .insert({
@@ -304,18 +296,13 @@ Analyze this text for appropriateness and if appropriate, split it into 4-8 page
         pages: finalPages,
         quiz: result.quiz,
       }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (error) {
     console.error("Error:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   }
 });
