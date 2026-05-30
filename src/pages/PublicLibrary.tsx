@@ -43,6 +43,8 @@ function BookCoverPlaceholder({ title }: { title: string }) {
 
 function BrowseTab() {
   const navigate = useNavigate();
+  // undefined = still resolving, null = not logged in, string = logged-in uid
+  const [userId, setUserId]             = useState<string | null | undefined>(undefined);
   const [query, setQuery]               = useState('');
   const [results, setResults]           = useState<GutenbergBook[]>([]);
   const [loading, setLoading]           = useState(false);
@@ -52,6 +54,11 @@ function BrowseTab() {
   const [imported, setImported]         = useState<Set<number>>(new Set());
   const [searchProgress, setSearchProgress] = useState(0);
   const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Resolve current user once on mount
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
+  }, []);
 
   // Simulated progress bar: accelerates early, crawls near 85%, snaps to 100% on done.
   useEffect(() => {
@@ -186,6 +193,36 @@ function BrowseTab() {
 
   return (
     <div className="flex flex-col h-full">
+
+      {/* ── Sign-in gate ───────────────────────────────────────────────── */}
+      {userId === null && (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="bg-card rounded-2xl p-8 text-center shadow-sm border border-border w-full max-w-sm flex flex-col items-center gap-3">
+            <div className="text-4xl mb-1">📚</div>
+            <h2 className="text-lg font-bold">Sign in to browse books</h2>
+            <p className="text-sm text-muted-foreground">
+              Create a free account to search and import from 70,000+ classics via Project Gutenberg.
+            </p>
+            <Button
+              className="mt-2 w-full rounded-xl"
+              onClick={() => navigate('/auth')}
+            >
+              Sign In / Sign Up →
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Loading skeleton while auth resolves ──────────────────────── */}
+      {userId === undefined && (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {/* ── Main browse UI (logged-in users only) ─────────────────────── */}
+      {userId && (<>
+
       {/* Search bar */}
       <div className="p-4 pb-2">
         <div className="flex gap-2">
@@ -334,6 +371,8 @@ function BrowseTab() {
           ))}
         </AnimatePresence>
       </div>
+
+      </>)}  {/* end userId && */}
     </div>
   );
 }
