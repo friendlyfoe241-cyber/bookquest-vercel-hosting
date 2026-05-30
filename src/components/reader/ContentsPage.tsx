@@ -27,7 +27,7 @@ const ContentsPage = ({
   book, toc, onJumpToPage, hasMore, onLoadMore, loadingMore,
 }: ContentsPageProps) => {
   return (
-    <div className="w-full h-dvh flex-shrink-0 snap-start flex flex-col bg-background overflow-hidden">
+    <div className="w-full h-full flex-shrink-0 snap-start flex flex-col bg-background overflow-hidden">
       {/* Book header */}
       <div className="flex flex-col items-center pt-6 pb-4 px-6 flex-shrink-0">
         <div

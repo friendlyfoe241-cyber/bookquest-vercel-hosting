@@ -23,7 +23,7 @@ const ReaderPage = ({
   const showImage = !!cachedImage && !imgError;
 
   return (
-    <div className="w-full h-dvh flex-shrink-0 snap-start flex flex-col items-center justify-center px-6 sm:px-12 py-4">
+    <div className="w-full h-full flex-shrink-0 snap-start flex flex-col items-center justify-center px-6 sm:px-12 py-4">
 
       {/* Image area — either real illustration or emoji gradient placeholder */}
       <div className="w-full max-w-md flex-shrink-0 mb-3">
