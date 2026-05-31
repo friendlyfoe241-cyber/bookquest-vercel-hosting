@@ -846,9 +846,12 @@ function ImportTextTab() {
     try {
       const pdfjsLib = await import('pdfjs-dist');
 
-      // pdfjs-dist v4 uses .mjs worker — hardcode version to match package.json
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+      // Vite resolves new URL(..., import.meta.url) statically at build time,
+      // bundling the worker as a local asset — far more reliable than a CDN URL.
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.min.mjs',
+        import.meta.url,
+      ).toString();
 
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
