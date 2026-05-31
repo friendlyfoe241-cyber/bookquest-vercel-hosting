@@ -110,8 +110,6 @@ const FEATURED_BOOKS: GutenbergBook[] = [
 
 function BrowseTab() {
   const navigate = useNavigate();
-  // undefined = still resolving, null = not logged in, string = logged-in uid
-  const [userId, setUserId]             = useState<string | null | undefined>(undefined);
   const [query, setQuery]               = useState('');
   const [results, setResults]           = useState<GutenbergBook[]>([]);
   const [loading, setLoading]           = useState(false);
@@ -121,11 +119,6 @@ function BrowseTab() {
   const [imported, setImported]         = useState<Set<number>>(new Set());
   const [searchProgress, setSearchProgress] = useState(0);
   const progressRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Resolve current user once on mount
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
-  }, []);
 
   // Simulated progress bar: accelerates early, crawls near 85%, snaps to 100% on done.
   useEffect(() => {
@@ -260,35 +253,6 @@ function BrowseTab() {
 
   return (
     <div className="flex flex-col h-full">
-
-      {/* ── Sign-in gate ───────────────────────────────────────────────── */}
-      {userId === null && (
-        <div className="flex-1 flex items-center justify-center p-6">
-          <div className="bg-card rounded-2xl p-8 text-center shadow-sm border border-border w-full max-w-sm flex flex-col items-center gap-3">
-            <div className="text-4xl mb-1">📚</div>
-            <h2 className="text-lg font-bold">Sign in to browse books</h2>
-            <p className="text-sm text-muted-foreground">
-              Create a free account to search and import from 70,000+ classics via Project Gutenberg.
-            </p>
-            <Button
-              className="mt-2 w-full rounded-xl"
-              onClick={() => navigate('/auth')}
-            >
-              Sign In / Sign Up →
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Loading skeleton while auth resolves ──────────────────────── */}
-      {userId === undefined && (
-        <div className="flex-1 flex items-center justify-center">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        </div>
-      )}
-
-      {/* ── Main browse UI (logged-in users only) ─────────────────────── */}
-      {userId && (<>
 
       {/* Search bar */}
       <div className="p-4 pb-2">
@@ -516,7 +480,6 @@ function BrowseTab() {
         </AnimatePresence>
       </div>
 
-      </>)}  {/* end userId && */}
     </div>
   );
 }
@@ -948,8 +911,14 @@ function ImportTextTab() {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const PublicLibrary = () => {
-  const navigate      = useNavigate();
-  const [tab, setTab] = useState<Tab>('browse');
+  const navigate = useNavigate();
+  const [tab, setTab]     = useState<Tab>('browse');
+  // undefined = resolving, null = guest, string = logged-in uid
+  const [userId, setUserId] = useState<string | null | undefined>(undefined);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
+  }, []);
 
   return (
     <div className="h-dvh bg-background flex flex-col">
@@ -967,48 +936,76 @@ const PublicLibrary = () => {
         </div>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex border-b border-border flex-shrink-0">
-        {([
-          { key: 'browse', label: 'Browse',       icon: Search  },
-          { key: 'scan',   label: 'Scan Cover',   icon: Camera  },
-          { key: 'text',   label: 'Import Text',  icon: Upload  },
-        ] as { key: Tab; label: string; icon: typeof Search }[]).map(({ key, label, icon: Icon }) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors relative ${
-              tab === key ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            <Icon className="w-4 h-4" />
-            {label}
-            {tab === key && (
-              <motion.div
-                layoutId="tab-indicator"
-                className="absolute bottom-0 left-4 right-4 h-0.5 bg-primary rounded-full"
-              />
-            )}
-          </button>
-        ))}
-      </div>
+      {/* ── Auth resolving ───────────────────────────────────────────────── */}
+      {userId === undefined && (
+        <div className="flex-1 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      )}
 
-      {/* Tab content */}
-      <div className="flex-1 overflow-hidden">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={tab}
-            initial={{ opacity: 0, x: tab === 'browse' ? -10 : 10 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="h-full"
-          >
-            {tab === 'browse' ? <BrowseTab /> : tab === 'scan' ? <ScanCoverTab /> : <ImportTextTab />}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-    </div>
+      {/* ── Sign-in gate (all tabs) ──────────────────────────────────────── */}
+      {userId === null && (
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="bg-card rounded-2xl p-8 text-center shadow-sm border border-border w-full max-w-sm flex flex-col items-center gap-3">
+            <div className="text-4xl mb-1">📚</div>
+            <h2 className="text-lg font-bold">Sign in to use the Book Library</h2>
+            <p className="text-sm text-muted-foreground">
+              Create a free account to browse classics, scan covers, and import your own books.
+            </p>
+            <Button
+              className="mt-2 w-full rounded-xl"
+              onClick={() => navigate('/auth')}
+            >
+              Sign In / Sign Up →
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Tabs (logged-in users only) ──────────────────────────────────── */}
+      {userId && (<>
+        {/* Tab bar */}
+        <div className="flex border-b border-border flex-shrink-0">
+          {([
+            { key: 'browse', label: 'Browse',      icon: Search },
+            { key: 'scan',   label: 'Scan Cover',  icon: Camera },
+            { key: 'text',   label: 'Import Text', icon: Upload },
+          ] as { key: Tab; label: string; icon: typeof Search }[]).map(({ key, label, icon: Icon }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors relative ${
+                tab === key ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {label}
+              {tab === key && (
+                <motion.div
+                  layoutId="tab-indicator"
+                  className="absolute bottom-0 left-4 right-4 h-0.5 bg-primary rounded-full"
+                />
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-hidden">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={tab}
+              initial={{ opacity: 0, x: tab === 'browse' ? -10 : 10 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="h-full"
+            >
+              {tab === 'browse' ? <BrowseTab /> : tab === 'scan' ? <ScanCoverTab /> : <ImportTextTab />}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </>)}    </div>
   );
 };
 
