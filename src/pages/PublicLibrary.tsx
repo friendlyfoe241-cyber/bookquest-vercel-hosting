@@ -844,10 +844,11 @@ function ImportTextTab() {
     setText('');
 
     try {
-      // Lazy-import so the worker CDN URL is set before any parsing
       const pdfjsLib = await import('pdfjs-dist');
+
+      // pdfjs-dist v4 uses .mjs worker — hardcode version to match package.json
       pdfjsLib.GlobalWorkerOptions.workerSrc =
-        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+        'https://unpkg.com/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
 
       const arrayBuffer = await file.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -858,7 +859,6 @@ function ImportTextTab() {
         const page    = await pdf.getPage(p);
         const content = await page.getTextContent();
 
-        // Reconstruct readable text, preserving line breaks
         let pageText = '';
         let lastY: number | null = null;
         for (const item of content.items as any[]) {
@@ -904,7 +904,14 @@ function ImportTextTab() {
     } catch (err: any) {
       console.error('PDF extraction error:', err);
       setPdfState('error');
-      toast.error('Failed to read the PDF. Please try another file.');
+      const msg = err?.message || String(err);
+      if (msg.toLowerCase().includes('password')) {
+        toast.error('This PDF is password-protected. Please remove the password first.');
+      } else if (msg.toLowerCase().includes('worker')) {
+        toast.error('PDF worker failed to load — check your internet connection and try again.');
+      } else {
+        toast.error(`Failed to read the PDF: ${msg.slice(0, 80)}`);
+      }
     }
   };
 
