@@ -893,14 +893,14 @@ function ImportTextTab() {
       if (!title.trim()) setTitle(autoTitle);
 
       // Truncate to 50k chars (same limit as manual paste)
-      const truncated = extracted.slice(0, 50000);
+      const truncated = extracted.slice(0, 200000);
       setText(truncated);
 
       setPdfInfo({ name: file.name, pages: pdf.numPages, chars: truncated.length });
       setPdfState('done');
 
-      if (extracted.length > 50000) {
-        toast.info('PDF was trimmed to 50,000 characters to fit the import limit.');
+      if (extracted.length > 200000) {
+        toast.info('PDF was trimmed to 200,000 characters to fit the import limit.');
       } else {
         toast.success(`Extracted ${truncated.length.toLocaleString()} characters from ${pdf.numPages} pages.`);
       }
@@ -955,7 +955,7 @@ function ImportTextTab() {
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-28 overflow-y-auto">
+    <div className="flex flex-col gap-4 p-4 pb-8 overflow-y-auto h-full">
 
       {/* ── PDF upload area ─────────────────────────────────────────────── */}
       <div>
@@ -1031,12 +1031,12 @@ function ImportTextTab() {
         <label className="text-sm font-medium text-foreground mb-1.5 block">
           Book text
           <span className="text-muted-foreground font-normal ml-2 text-xs">
-            ({text.length.toLocaleString()} / 50,000 chars)
+            ({text.length.toLocaleString()} / 200,000 chars)
           </span>
         </label>
         <textarea
           value={text}
-          onChange={e => setText(e.target.value.slice(0, 50000))}
+          onChange={e => setText(e.target.value.slice(0, 200000))}
           placeholder={pdfState === 'done'
             ? 'Text extracted from PDF — you can edit it before importing…'
             : 'Paste your story or book text here…'}
@@ -1052,7 +1052,7 @@ function ImportTextTab() {
       <Button
         onClick={handleImport}
         disabled={loading || !title.trim() || text.trim().length < 100}
-        className="w-full h-11 rounded-xl font-bold"
+        className="w-full h-11 rounded-xl font-bold shrink-0"
       >
         {loading
           ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Processing…</>
