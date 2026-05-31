@@ -823,10 +823,92 @@ function ScanCoverTab() {
 
 function ImportTextTab() {
   const navigate = useNavigate();
-  const [title, setTitle]     = useState('');
-  const [text, setText]       = useState('');
-  const [loading, setLoading] = useState(false);
+  const [title, setTitle]         = useState('');
+  const [text, setText]           = useState('');
+  const [loading, setLoading]     = useState(false);
+  const [pdfState, setPdfState]   = useState<
+    'idle' | 'extracting' | 'done' | 'error'
+  >('idle');
+  const [pdfInfo, setPdfInfo]     = useState<{ name: string; pages: number; chars: number } | null>(null);
+  const pdfRef                    = useRef<HTMLInputElement>(null);
 
+  // ── PDF extraction (client-side via pdfjs-dist) ──────────────────────────
+  const handlePdf = async (file: File) => {
+    if (file.type !== 'application/pdf') {
+      toast.error('Please select a PDF file.');
+      return;
+    }
+
+    setPdfState('extracting');
+    setPdfInfo(null);
+    setText('');
+
+    try {
+      // Lazy-import so the worker CDN URL is set before any parsing
+      const pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+
+      const pageTexts: string[] = [];
+
+      for (let p = 1; p <= pdf.numPages; p++) {
+        const page    = await pdf.getPage(p);
+        const content = await page.getTextContent();
+
+        // Reconstruct readable text, preserving line breaks
+        let pageText = '';
+        let lastY: number | null = null;
+        for (const item of content.items as any[]) {
+          if (!item.str) continue;
+          const y = item.transform?.[5];
+          if (lastY !== null && Math.abs(y - lastY) > 5) pageText += '\n';
+          pageText += item.str + (item.hasEOL ? '\n' : ' ');
+          lastY = y;
+        }
+        pageTexts.push(pageText.trim());
+      }
+
+      // Join pages, clean up excess whitespace
+      let extracted = pageTexts
+        .filter(t => t.length > 0)
+        .join('\n\n')
+        .replace(/[ \t]{3,}/g, '  ')   // collapse horizontal whitespace
+        .replace(/\n{4,}/g, '\n\n\n')  // collapse excessive blank lines
+        .trim();
+
+      if (extracted.length < 100) {
+        setPdfState('error');
+        toast.error('Could not extract readable text from this PDF. It may be a scanned image — try a text-based PDF.');
+        return;
+      }
+
+      // Auto-fill title from filename (strip extension)
+      const autoTitle = file.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' ');
+      if (!title.trim()) setTitle(autoTitle);
+
+      // Truncate to 50k chars (same limit as manual paste)
+      const truncated = extracted.slice(0, 50000);
+      setText(truncated);
+
+      setPdfInfo({ name: file.name, pages: pdf.numPages, chars: truncated.length });
+      setPdfState('done');
+
+      if (extracted.length > 50000) {
+        toast.info('PDF was trimmed to 50,000 characters to fit the import limit.');
+      } else {
+        toast.success(`Extracted ${truncated.length.toLocaleString()} characters from ${pdf.numPages} pages.`);
+      }
+    } catch (err: any) {
+      console.error('PDF extraction error:', err);
+      setPdfState('error');
+      toast.error('Failed to read the PDF. Please try another file.');
+    }
+  };
+
+  // ── Submit to process-imported-book ─────────────────────────────────────
   const handleImport = async () => {
     if (!title.trim() || text.trim().length < 100) {
       toast.error('Please enter a title and at least 100 characters of text.');
@@ -863,7 +945,67 @@ function ImportTextTab() {
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4 pb-28">
+    <div className="flex flex-col gap-4 p-4 pb-28 overflow-y-auto">
+
+      {/* ── PDF upload area ─────────────────────────────────────────────── */}
+      <div>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">
+          Upload a PDF <span className="text-muted-foreground font-normal">(optional)</span>
+        </label>
+
+        <input
+          ref={pdfRef}
+          type="file"
+          accept="application/pdf"
+          className="hidden"
+          onChange={e => { if (e.target.files?.[0]) handlePdf(e.target.files[0]); }}
+        />
+
+        {pdfState === 'idle' || pdfState === 'error' ? (
+          <button
+            onClick={() => pdfRef.current?.click()}
+            className="w-full border-2 border-dashed border-border rounded-xl p-5 flex flex-col items-center gap-2 text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+          >
+            <Upload className="w-6 h-6" />
+            <span className="text-sm font-medium">Click to upload a PDF</span>
+            <span className="text-xs">Text will be extracted automatically</span>
+          </button>
+        ) : pdfState === 'extracting' ? (
+          <div className="w-full border border-border rounded-xl p-5 flex items-center gap-3">
+            <Loader2 className="w-5 h-5 animate-spin text-primary flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium">Reading PDF…</p>
+              <p className="text-xs text-muted-foreground">Extracting text from all pages</p>
+            </div>
+          </div>
+        ) : (
+          /* done */
+          <div className="w-full border border-primary/40 bg-primary/5 rounded-xl p-4 flex items-center gap-3">
+            <div className="text-2xl">📄</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold truncate">{pdfInfo?.name}</p>
+              <p className="text-xs text-muted-foreground">
+                {pdfInfo?.pages} pages · {pdfInfo?.chars.toLocaleString()} chars extracted
+              </p>
+            </div>
+            <button
+              onClick={() => { setPdfState('idle'); setPdfInfo(null); setText(''); }}
+              className="text-xs text-muted-foreground hover:text-destructive transition-colors flex-shrink-0"
+            >
+              Remove
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Divider ─────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex-1 h-px bg-border" />
+        <span>or paste text manually</span>
+        <div className="flex-1 h-px bg-border" />
+      </div>
+
+      {/* ── Title ───────────────────────────────────────────────────────── */}
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">Book Title</label>
         <Input
@@ -874,9 +1016,10 @@ function ImportTextTab() {
         />
       </div>
 
+      {/* ── Text area ───────────────────────────────────────────────────── */}
       <div>
         <label className="text-sm font-medium text-foreground mb-1.5 block">
-          Paste your text
+          Book text
           <span className="text-muted-foreground font-normal ml-2 text-xs">
             ({text.length.toLocaleString()} / 50,000 chars)
           </span>
@@ -884,25 +1027,27 @@ function ImportTextTab() {
         <textarea
           value={text}
           onChange={e => setText(e.target.value.slice(0, 50000))}
-          placeholder="Paste your story or book text here…"
-          rows={12}
+          placeholder={pdfState === 'done'
+            ? 'Text extracted from PDF — you can edit it before importing…'
+            : 'Paste your story or book text here…'}
+          rows={10}
           className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
         />
         <p className="text-xs text-muted-foreground mt-1">
-          Content is reviewed for age-appropriateness. The AI will split it into pages and create a quiz.
+          Content is reviewed for age-appropriateness. The AI will detect chapters (if any), split the text into pages, and create a quiz.
         </p>
       </div>
 
+      {/* ── Submit ──────────────────────────────────────────────────────── */}
       <Button
         onClick={handleImport}
         disabled={loading || !title.trim() || text.trim().length < 100}
         className="w-full h-11 rounded-xl font-bold"
       >
-        {loading ? (
-          <><Loader2 className="w-4 h-4 animate-spin mr-2" />Processing…</>
-        ) : (
-          'Import Book 📚'
-        )}
+        {loading
+          ? <><Loader2 className="w-4 h-4 animate-spin mr-2" />Processing…</>
+          : 'Import Book 📚'
+        }
       </Button>
     </div>
   );
