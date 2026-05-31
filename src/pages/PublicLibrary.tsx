@@ -22,7 +22,7 @@ interface GutenbergBook {
   textUrl: string;
 }
 
-type Tab = 'browse' | 'import';
+type Tab = 'browse' | 'scan' | 'text';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -856,6 +856,95 @@ function ScanCoverTab() {
   );
 }
 
+// ── Import Text tab ───────────────────────────────────────────────────────────
+
+function ImportTextTab() {
+  const navigate = useNavigate();
+  const [title, setTitle]     = useState('');
+  const [text, setText]       = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleImport = async () => {
+    if (!title.trim() || text.trim().length < 100) {
+      toast.error('Please enter a title and at least 100 characters of text.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('process-imported-book', {
+        body: { title: title.trim(), text: text.trim() },
+      });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(data.error);
+
+      const stored = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
+      stored.push({
+        id:         data.bookId,
+        title:      data.title,
+        pages:      data.pages,
+        quiz:       data.quiz,
+        coverEmoji: data.coverEmoji,
+        coverColor: data.coverColor,
+        genre:      data.genre,
+        difficulty: data.difficulty,
+      });
+      localStorage.setItem('bookquest-imported', JSON.stringify(stored));
+
+      toast.success('Book imported successfully! 🎉');
+      navigate(`/read/${data.bookId}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Import failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-4 p-4 pb-28">
+      <div>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">Book Title</label>
+        <Input
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="e.g. My Summer Adventure"
+          className="rounded-xl"
+        />
+      </div>
+
+      <div>
+        <label className="text-sm font-medium text-foreground mb-1.5 block">
+          Paste your text
+          <span className="text-muted-foreground font-normal ml-2 text-xs">
+            ({text.length.toLocaleString()} / 50,000 chars)
+          </span>
+        </label>
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value.slice(0, 50000))}
+          placeholder="Paste your story or book text here…"
+          rows={12}
+          className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          Content is reviewed for age-appropriateness. The AI will split it into pages and create a quiz.
+        </p>
+      </div>
+
+      <Button
+        onClick={handleImport}
+        disabled={loading || !title.trim() || text.trim().length < 100}
+        className="w-full h-11 rounded-xl font-bold"
+      >
+        {loading ? (
+          <><Loader2 className="w-4 h-4 animate-spin mr-2" />Processing…</>
+        ) : (
+          'Import Book 📚'
+        )}
+      </Button>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 const PublicLibrary = () => {
@@ -881,8 +970,9 @@ const PublicLibrary = () => {
       {/* Tab bar */}
       <div className="flex border-b border-border flex-shrink-0">
         {([
-          { key: 'browse', label: 'Browse Classics', icon: Search },
-          { key: 'import', label: 'Scan Cover',      icon: Camera },
+          { key: 'browse', label: 'Browse',       icon: Search  },
+          { key: 'scan',   label: 'Scan Cover',   icon: Camera  },
+          { key: 'text',   label: 'Import Text',  icon: Upload  },
         ] as { key: Tab; label: string; icon: typeof Search }[]).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -914,7 +1004,7 @@ const PublicLibrary = () => {
             transition={{ duration: 0.15 }}
             className="h-full"
           >
-            {tab === 'browse' ? <BrowseTab /> : <ScanCoverTab />}
+            {tab === 'browse' ? <BrowseTab /> : tab === 'scan' ? <ScanCoverTab /> : <ImportTextTab />}
           </motion.div>
         </AnimatePresence>
       </div>
