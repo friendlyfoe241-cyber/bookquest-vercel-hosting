@@ -2,8 +2,10 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { Search, BookOpen, Upload, ArrowLeft, Download, Loader2, CheckCircle } from 'lucide-react';
+import { Search, BookOpen, Upload, ArrowLeft, Download, Loader2, CheckCircle, Camera, CheckCircle2, XCircle, Star } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { calcQuizCoins } from '@/utils/coinEconomy';
+import type { Difficulty } from '@/utils/coinEconomy';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
@@ -519,91 +521,337 @@ function BrowseTab() {
   );
 }
 
-// ── Import Text tab ───────────────────────────────────────────────────────────
+// ── Scan Cover tab ────────────────────────────────────────────────────────────
+// Lets the user photograph a book cover, identifies it with AI vision,
+// presents a 5-question quiz, and awards coins + XP on completion.
 
-function ImportTextTab() {
-  const navigate = useNavigate();
-  const [title, setTitle]     = useState('');
-  const [text, setText]       = useState('');
-  const [loading, setLoading] = useState(false);
+import { Camera, CheckCircle2, XCircle, Star, Coins } from 'lucide-react';
+import { calcQuizCoins } from '@/utils/coinEconomy';
+import type { Difficulty } from '@/utils/coinEconomy';
 
-  const handleImport = async () => {
-    if (!title.trim() || text.trim().length < 100) {
-      toast.error('Please enter a title and at least 100 characters of text.');
+type ScanPhase = 'upload' | 'identifying' | 'quiz' | 'done';
+
+interface QuizQuestion {
+  question: string;
+  options: string[];
+  correctIndex: number;
+  type: 'mcq' | 'truefalse';
+}
+
+interface BookResult {
+  title: string;
+  author: string;
+  genre: string;
+  difficulty: Difficulty;
+  coverEmoji: string;
+  quiz: QuizQuestion[];
+}
+
+function ScanCoverTab() {
+  const [phase, setPhase]             = useState<ScanPhase>('upload');
+  const [previewUrl, setPreviewUrl]   = useState<string | null>(null);
+  const [book, setBook]               = useState<BookResult | null>(null);
+  const [currentQ, setCurrentQ]       = useState(0);
+  const [answers, setAnswers]         = useState<number[]>([]);
+  const [selected, setSelected]       = useState<number | null>(null);
+  const [coinsEarned, setCoinsEarned] = useState(0);
+  const [xpEarned, setXpEarned]       = useState(0);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // ── Image selection ──────────────────────────────────────────────────────
+  const handleFile = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file.');
       return;
     }
-    setLoading(true);
+    const url = URL.createObjectURL(file);
+    setPreviewUrl(url);
+    setPhase('identifying');
+
     try {
-      const { data, error } = await supabase.functions.invoke('process-imported-book', {
-        body: { title: title.trim(), text: text.trim() },
+      // Convert to base64
+      const base64 = await new Promise<string>((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res((reader.result as string).split(',')[1]);
+        reader.onerror = rej;
+        reader.readAsDataURL(file);
       });
+
+      const { data, error } = await supabase.functions.invoke('identify-book-cover', {
+        body: { imageBase64: base64, mimeType: file.type },
+      });
+
       if (error) throw new Error(error.message);
       if (data?.error) throw new Error(data.error);
 
-      const stored = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
-      stored.push({
-        id:         data.bookId,
-        title:      data.title,
-        pages:      data.pages,
-        quiz:       data.quiz,
-        coverEmoji: data.coverEmoji,
-        coverColor: data.coverColor,
-        genre:      data.genre,
-        difficulty: data.difficulty,
-      });
-      localStorage.setItem('bookquest-imported', JSON.stringify(stored));
-
-      toast.success('Book imported successfully! 🎉');
-      navigate(`/read/${data.bookId}`);
+      setBook(data as BookResult);
+      setPhase('quiz');
     } catch (err: any) {
-      toast.error(err.message || 'Import failed. Please try again.');
-    } finally {
-      setLoading(false);
+      toast.error(err.message || 'Could not identify the book. Please try a clearer photo.');
+      setPhase('upload');
+      setPreviewUrl(null);
     }
   };
 
+  // ── Quiz answer ──────────────────────────────────────────────────────────
+  const handleAnswer = async (idx: number) => {
+    if (selected !== null || !book) return;
+    setSelected(idx);
+
+    setTimeout(async () => {
+      const newAnswers = [...answers, idx];
+
+      if (currentQ < book.quiz.length - 1) {
+        setAnswers(newAnswers);
+        setCurrentQ(q => q + 1);
+        setSelected(null);
+      } else {
+        // Quiz complete — calculate rewards
+        const score   = newAnswers.filter((a, i) => a === book.quiz[i].correctIndex).length;
+        const qCoins  = calcQuizCoins(book.difficulty, score, book.quiz.length);
+        const baseXp  = 25;
+        const totalCoins = qCoins + 5; // base participation coins
+
+        setCoinsEarned(totalCoins);
+        setXpEarned(baseXp);
+        setAnswers(newAnswers);
+        setPhase('done');
+
+        // Persist rewards
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data: prof } = await supabase
+              .from('profiles')
+              .select('xp, coins')
+              .eq('user_id', user.id)
+              .single();
+
+            if (prof) {
+              await supabase
+                .from('profiles')
+                .update({
+                  xp:    ((prof as any).xp    || 0) + baseXp,
+                  coins: ((prof as any).coins  || 0) + totalCoins,
+                } as any)
+                .eq('user_id', user.id);
+            }
+
+            await supabase.from('xp_log').insert({
+              user_id:   user.id,
+              xp_amount: baseXp,
+              source:    'cover_quiz',
+            });
+          }
+        } catch (e) {
+          console.error('Failed to save rewards:', e);
+        }
+      }
+    }, 900);
+  };
+
+  // ── Reset ────────────────────────────────────────────────────────────────
+  const reset = () => {
+    setPhase('upload');
+    setPreviewUrl(null);
+    setBook(null);
+    setCurrentQ(0);
+    setAnswers([]);
+    setSelected(null);
+  };
+
+  // ── Render ───────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col gap-4 p-4 pb-28">
-      <div>
-        <label className="text-sm font-medium text-foreground mb-1.5 block">Book Title</label>
-        <Input
-          value={title}
-          onChange={e => setTitle(e.target.value)}
-          placeholder="e.g. My Summer Adventure"
-          className="rounded-xl"
-        />
-      </div>
+    <div className="flex flex-col h-full overflow-y-auto pb-28">
 
-      <div>
-        <label className="text-sm font-medium text-foreground mb-1.5 block">
-          Paste your text
-          <span className="text-muted-foreground font-normal ml-2 text-xs">
-            ({text.length.toLocaleString()} / 50,000 chars)
-          </span>
-        </label>
-        <textarea
-          value={text}
-          onChange={e => setText(e.target.value.slice(0, 50000))}
-          placeholder="Paste your story or book text here…"
-          rows={12}
-          className="w-full rounded-xl border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-        />
-        <p className="text-xs text-muted-foreground mt-1">
-          Content is reviewed for age-appropriateness. The AI will split it into pages and create a quiz.
-        </p>
-      </div>
+      {/* ── Upload phase ─────────────────────────────────────────────────── */}
+      {phase === 'upload' && (
+        <div className="flex flex-col items-center justify-center flex-1 p-6 gap-6">
+          <div className="text-center">
+            <div className="text-5xl mb-3">📸</div>
+            <h2 className="text-lg font-bold">Scan a Book Cover</h2>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xs">
+              Take a photo of any book cover — the AI identifies it and builds a quiz just for you
+            </p>
+          </div>
 
-      <Button
-        onClick={handleImport}
-        disabled={loading || !title.trim() || text.trim().length < 100}
-        className="w-full h-11 rounded-xl font-bold"
-      >
-        {loading ? (
-          <><Loader2 className="w-4 h-4 animate-spin mr-2" />Processing…</>
-        ) : (
-          'Import Book 📚'
-        )}
-      </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={e => { if (e.target.files?.[0]) handleFile(e.target.files[0]); }}
+          />
+
+          <div className="flex flex-col w-full max-w-xs gap-3">
+            <Button
+              className="w-full h-12 rounded-xl font-semibold gap-2"
+              onClick={() => { if (fileRef.current) { fileRef.current.removeAttribute('capture'); fileRef.current.click(); } }}
+            >
+              <Camera className="w-5 h-5" /> Take a Photo
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full h-12 rounded-xl gap-2"
+              onClick={() => { if (fileRef.current) { fileRef.current.removeAttribute('capture'); fileRef.current.click(); } }}
+            >
+              <Upload className="w-4 h-4" /> Upload from Library
+            </Button>
+          </div>
+
+          <p className="text-xs text-muted-foreground text-center max-w-xs">
+            Works best with a clear, straight-on photo of the front cover in good lighting
+          </p>
+        </div>
+      )}
+
+      {/* ── Identifying phase ─────────────────────────────────────────────── */}
+      {phase === 'identifying' && (
+        <div className="flex flex-col items-center justify-center flex-1 p-6 gap-5">
+          {previewUrl && (
+            <img
+              src={previewUrl}
+              alt="Book cover"
+              className="w-32 h-44 object-cover rounded-xl shadow-lg"
+            />
+          )}
+          <div className="flex flex-col items-center gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            <p className="font-medium text-sm">Identifying book…</p>
+            <p className="text-xs text-muted-foreground">Reading the cover with AI vision</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Quiz phase ────────────────────────────────────────────────────── */}
+      {phase === 'quiz' && book && (() => {
+        const q = book.quiz[currentQ];
+        const correct = selected !== null ? selected === q.correctIndex : null;
+        return (
+          <div className="flex flex-col p-4 gap-4">
+            {/* Book card */}
+            <div className="flex items-center gap-3 bg-card rounded-2xl p-3 border border-border">
+              <div className="text-3xl">{book.coverEmoji}</div>
+              <div className="min-w-0">
+                <p className="font-bold text-sm leading-tight line-clamp-1">{book.title}</p>
+                <p className="text-xs text-muted-foreground">{book.author}</p>
+                <div className="flex gap-1.5 mt-1">
+                  <span className="text-[10px] bg-muted px-2 py-0.5 rounded-full text-muted-foreground capitalize">
+                    {book.genre}
+                  </span>
+                  <span className="text-[10px] bg-muted px-2 py-0.5 rounded-full text-muted-foreground capitalize">
+                    {book.difficulty}
+                  </span>
+                </div>
+              </div>
+              {previewUrl && (
+                <img src={previewUrl} alt="" className="w-12 h-16 object-cover rounded-lg ml-auto flex-shrink-0" />
+              )}
+            </div>
+
+            {/* Progress */}
+            <div>
+              <div className="flex justify-between text-xs text-muted-foreground mb-1.5">
+                <span>Question {currentQ + 1} of {book.quiz.length}</span>
+                <span>{answers.filter((a, i) => a === book.quiz[i].correctIndex).length} correct</span>
+              </div>
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                <motion.div
+                  className="h-full bg-primary rounded-full"
+                  animate={{ width: `${((currentQ + 1) / book.quiz.length) * 100}%` }}
+                  transition={{ duration: 0.3 }}
+                />
+              </div>
+            </div>
+
+            {/* Question */}
+            <motion.div
+              key={currentQ}
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="bg-card rounded-2xl p-4 border border-border"
+            >
+              <p className="font-semibold text-sm leading-snug mb-4">{q.question}</p>
+              <div className="flex flex-col gap-2">
+                {q.options.map((opt, i) => {
+                  let cls = 'border-border bg-background hover:bg-muted/50';
+                  if (selected !== null) {
+                    if (i === q.correctIndex)        cls = 'border-green-500 bg-green-500/15 text-green-400';
+                    else if (i === selected)         cls = 'border-red-500 bg-red-500/15 text-red-400';
+                  }
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => handleAnswer(i)}
+                      disabled={selected !== null}
+                      className={`w-full text-left px-4 py-3 rounded-xl border text-sm flex items-center justify-between transition-colors ${cls}`}
+                    >
+                      <span>{opt}</span>
+                      {selected !== null && i === q.correctIndex && <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />}
+                      {selected !== null && i === selected && i !== q.correctIndex && <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
+          </div>
+        );
+      })()}
+
+      {/* ── Done phase ────────────────────────────────────────────────────── */}
+      {phase === 'done' && book && (() => {
+        const score    = answers.filter((a, i) => a === book.quiz[i].correctIndex).length;
+        const isPerfect = score === book.quiz.length;
+        return (
+          <div className="flex flex-col items-center p-6 gap-5">
+            <div className="text-6xl">{isPerfect ? '🎉' : score >= 3 ? '⭐' : '💪'}</div>
+            <div className="text-center">
+              <h2 className="text-xl font-bold">
+                {isPerfect ? 'Perfect Score!' : score >= 3 ? 'Great Job!' : 'Nice Try!'}
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                You got <span className="font-bold text-foreground">{score}</span> out of{' '}
+                <span className="font-bold text-foreground">{book.quiz.length}</span> correct
+              </p>
+            </div>
+
+            {/* Stars */}
+            <div className="flex gap-1">
+              {Array.from({ length: book.quiz.length }).map((_, i) => (
+                <Star
+                  key={i}
+                  className={`w-7 h-7 ${i < score ? 'text-amber-400 fill-amber-400' : 'text-muted'}`}
+                />
+              ))}
+            </div>
+
+            {/* Rewards */}
+            <div className="bg-card rounded-2xl p-4 border border-border w-full max-w-xs text-center">
+              <p className="text-xs text-muted-foreground mb-2 font-medium uppercase tracking-wide">Rewards earned</p>
+              <div className="flex justify-center gap-6">
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-2xl font-bold text-primary">+{xpEarned}</span>
+                  <span className="text-xs text-muted-foreground">XP</span>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <span className="text-2xl font-bold text-yellow-500">+{coinsEarned}</span>
+                  <span className="text-xs text-muted-foreground flex items-center gap-0.5">
+                    coins
+                  </span>
+                </div>
+              </div>
+              {isPerfect && (
+                <p className="text-xs text-primary font-semibold mt-2">✨ Perfect bonus included!</p>
+              )}
+            </div>
+
+            <Button className="w-full max-w-xs h-11 rounded-xl" onClick={reset}>
+              Scan Another Book
+            </Button>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -626,7 +874,7 @@ const PublicLibrary = () => {
         </button>
         <div className="flex-1">
           <h1 className="font-display text-xl font-bold text-foreground">Book Library</h1>
-          <p className="text-xs text-muted-foreground">Browse 70,000+ classics or import your own</p>
+          <p className="text-xs text-muted-foreground">Browse 70,000+ classics or scan a cover</p>
         </div>
       </div>
 
@@ -634,7 +882,7 @@ const PublicLibrary = () => {
       <div className="flex border-b border-border flex-shrink-0">
         {([
           { key: 'browse', label: 'Browse Classics', icon: Search },
-          { key: 'import', label: 'Import Text',     icon: Upload },
+          { key: 'import', label: 'Scan Cover',      icon: Camera },
         ] as { key: Tab; label: string; icon: typeof Search }[]).map(({ key, label, icon: Icon }) => (
           <button
             key={key}
@@ -666,7 +914,7 @@ const PublicLibrary = () => {
             transition={{ duration: 0.15 }}
             className="h-full"
           >
-            {tab === 'browse' ? <BrowseTab /> : <ImportTextTab />}
+            {tab === 'browse' ? <BrowseTab /> : <ScanCoverTab />}
           </motion.div>
         </AnimatePresence>
       </div>
