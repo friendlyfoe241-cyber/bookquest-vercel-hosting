@@ -7,6 +7,7 @@ interface AppContextType {
   settings: AppSettings;
   updateProgress: (updates: Partial<UserProgress>) => void;
   updateSettings: (updates: Partial<AppSettings>) => void;
+  setActiveTheme: (themeKey: string | null) => void;
   likeBook: (bookId: string) => void;
   dislikeBook: (bookId: string) => void;
   undislikeBook: (bookId: string) => void;
@@ -38,6 +39,7 @@ const defaultSettings: AppSettings = {
   accentColor: `${ACCENT_COLORS[1].hue} ${ACCENT_COLORS[1].saturation}% ${ACCENT_COLORS[1].lightness}%`,
   onboarded: false,
   ageGroup: '12-17+',
+  activeTheme: undefined,
 };
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -170,6 +172,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         ageGroup:    (profile.age_group    as any) ?? prev.ageGroup,
         darkMode:    (profile as any).dark_mode    ?? prev.darkMode,
         accentColor: (profile as any).accent_color ?? prev.accentColor,
+        activeTheme: (profile as any).theme_id     ?? prev.activeTheme,
       }));
     } else {
       // Profile exists in auth but not yet in DB — still mark as onboarded
@@ -234,6 +237,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('bookquest-settings', JSON.stringify(settings));
     document.documentElement.classList.toggle('dark', settings.darkMode);
     document.documentElement.style.setProperty('--accent-hsl', settings.accentColor);
+    if (settings.activeTheme) {
+      document.documentElement.setAttribute('data-theme', settings.activeTheme);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
   }, [settings]);
 
   // ── Updaters ────────────────────────────────────────────────────────────────
@@ -376,9 +384,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return true;
   }, [progress.streakSavers]);
 
+  const setActiveTheme = useCallback((themeKey: string | null) => {
+    setSettings(prev => ({ ...prev, activeTheme: themeKey ?? undefined }));
+    getAuthUserId().then(uid => {
+      if (!uid) return;
+      syncProfileDisplayToDb(uid, { theme_id: themeKey });
+    });
+  }, []);
+
   return (
     <AppContext.Provider value={{
       progress, settings, updateProgress, updateSettings,
+      setActiveTheme,
       likeBook, dislikeBook, undislikeBook, markBookRead,
       saveQuizScore, rateBook, getUserLevel, checkStreak,
       addQuizStreak, useStreakSaver,
