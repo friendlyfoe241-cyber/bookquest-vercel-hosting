@@ -130,3 +130,101 @@
 .font-display {
   font-family: 'Fredoka One', cursive;
 }
+
+/* ─── Shop Themes ──────────────────────────────────────────────────────────── */
+
+/* Ocean Breeze */
+[data-theme="ocean-breeze"] {
+  --accent-hsl: 205 78% 50%;
+  --background: 210 45% 97%;
+  --card: 210 40% 99%;
+  --border: 205 35% 86%;
+  --primary: var(--accent-hsl);
+}
+[data-theme="ocean-breeze"].dark {
+  --background: 215 40% 8%;
+  --card: 215 38% 11%;
+  --border: 210 30% 18%;
+}
+[data-theme="ocean-breeze"] body {
+  background-image:
+    radial-gradient(ellipse 80% 40% at 50% 110%, hsla(205, 60%, 75%, 0.18) 0%, transparent 70%);
+}
+
+/* Forest Glow */
+[data-theme="forest-glow"] {
+  --accent-hsl: 145 63% 42%;
+  --background: 130 30% 97%;
+  --card: 130 25% 99%;
+  --border: 140 25% 85%;
+  --primary: var(--accent-hsl);
+}
+[data-theme="forest-glow"].dark {
+  --background: 140 30% 7%;
+  --card: 140 28% 10%;
+  --border: 140 22% 17%;
+}
+[data-theme="forest-glow"] body {
+  background-image:
+    radial-gradient(ellipse 70% 50% at 20% 0%, hsla(145, 55%, 70%, 0.12) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 80% 100%, hsla(100, 50%, 65%, 0.10) 0%, transparent 60%);
+}
+
+/* Sunset Fire */
+[data-theme="sunset-fire"] {
+  --accent-hsl: 20 90% 55%;
+  --background: 25 40% 97%;
+  --card: 25 35% 99%;
+  --border: 20 35% 86%;
+  --primary: var(--accent-hsl);
+}
+[data-theme="sunset-fire"].dark {
+  --background: 20 35% 8%;
+  --card: 20 32% 11%;
+  --border: 20 28% 18%;
+}
+[data-theme="sunset-fire"] body {
+  background-image:
+    radial-gradient(ellipse 80% 45% at 50% 110%, hsla(15, 80%, 68%, 0.22) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 30% at 100% 50%, hsla(35, 90%, 70%, 0.10) 0%, transparent 60%);
+}
+
+/* Midnight Stars */
+[data-theme="midnight-stars"] {
+  --accent-hsl: 260 65% 58%;
+  --background: 250 35% 97%;
+  --card: 250 30% 99%;
+  --border: 255 30% 85%;
+  --primary: var(--accent-hsl);
+}
+[data-theme="midnight-stars"].dark {
+  --background: 250 38% 6%;
+  --card: 250 35% 9%;
+  --border: 250 28% 15%;
+}
+[data-theme="midnight-stars"] body {
+  background-image:
+    radial-gradient(ellipse 60% 50% at 80% 20%, hsla(270, 60%, 60%, 0.12) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 40% at 20% 80%, hsla(230, 70%, 55%, 0.10) 0%, transparent 60%);
+}
+
+/* Royal Gold */
+[data-theme="royal-gold"] {
+  --accent-hsl: 45 93% 55%;
+  --background: 45 35% 97%;
+  --card: 45 30% 99%;
+  --border: 44 30% 86%;
+  --primary: var(--accent-hsl);
+  --primary-foreground: 40 50% 15%;
+}
+[data-theme="royal-gold"].dark {
+  --background: 40 30% 7%;
+  --card: 40 28% 10%;
+  --border: 42 25% 17%;
+  --primary-foreground: 0 0% 100%;
+}
+[data-theme="royal-gold"] body {
+  background-image:
+    radial-gradient(ellipse 70% 50% at 50% 0%, hsla(45, 85%, 75%, 0.15) 0%, transparent 65%),
+    radial-gradient(ellipse 50% 40% at 100% 100%, hsla(40, 80%, 65%, 0.08) 0%, transparent 55%);
+}
