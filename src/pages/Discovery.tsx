@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { books } from '@/data/books';
@@ -10,19 +10,23 @@ import { Book } from '@/types/book';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Heart, X, Sparkles, Search, ThumbsDown, Clock } from 'lucide-react';
+import { Heart, X, Sparkles, Search, ThumbsDown, Clock, Check } from 'lucide-react';
 import { useDiscoveryFeed } from '@/hooks/useDiscoveryFeed';
 import { filterBooksByAge } from '@/utils/ageClassification';
+import { useToast } from '@/hooks/use-toast';
 
-/** Pick exactly 5 random books using a session seed */
+/** Get books with smart prioritization: unread > read, then by genre preference */
 function getRandomBooks(
   allBooks: Book[],
   likedBooks: string[],
   dislikedBooks: string[],
   likedGenres: string[],
-  seed: number
+  readBooks: string[],
+  seed: number,
+  count: number = 5
 ): Book[] {
-  const unseen = allBooks.filter(b => !likedBooks.includes(b.id) && !dislikedBooks.includes(b.id));
+  // Allow reappearance if preferences change, but exclude books already actively disliked
+  const unseen = allBooks.filter(b => !dislikedBooks.includes(b.id));
   if (unseen.length === 0) return [];
 
   const shuffle = (arr: Book[], s: number) => {
@@ -34,55 +38,85 @@ function getRandomBooks(
     return c;
   };
 
-  const pref = unseen.filter(b => likedGenres.includes(b.genre));
-  const disc = unseen.filter(b => !likedGenres.includes(b.genre));
-  const sp = shuffle(pref, seed), sd = shuffle(disc, seed + 1);
-  const pc = likedGenres.length > 0 ? Math.min(Math.round(5 * 0.7), sp.length) : 0;
-  const dc = Math.min(5 - pc, sd.length);
-  const fpc = Math.min(5 - dc, sp.length);
-  const daily = [...sp.slice(0, fpc), ...sd.slice(0, dc)].slice(0, 5);
-  if (daily.length < 5) {
-    const rem = unseen.filter(b => !daily.includes(b));
-    daily.push(...shuffle(rem, seed + 2).slice(0, 5 - daily.length));
+  // Prioritize unread books first
+  const unreadPref = unseen.filter(b => !readBooks.includes(b.id) && likedGenres.includes(b.genre));
+  const unreadDisc = unseen.filter(b => !readBooks.includes(b.id) && !likedGenres.includes(b.genre));
+  const readPref = unseen.filter(b => readBooks.includes(b.id) && likedGenres.includes(b.genre));
+  const readDisc = unseen.filter(b => readBooks.includes(b.id) && !likedGenres.includes(b.genre));
+
+  const sp = shuffle(unreadPref, seed);
+  const sd = shuffle(unreadDisc, seed + 1);
+  const rp = shuffle(readPref, seed + 4);
+  const rd = shuffle(readDisc, seed + 5);
+
+  const pc = likedGenres.length > 0 ? Math.min(Math.round(count * 0.7), sp.length) : 0;
+  const dc = Math.min(count - pc, sd.length);
+  const result = [...sp.slice(0, pc), ...sd.slice(0, dc)];
+
+  // Fill remaining slots from read books if needed
+  if (result.length < count) {
+    const rpc = likedGenres.length > 0 ? Math.min(Math.round((count - result.length) * 0.7), rp.length) : 0;
+    const rdc = Math.min(count - result.length - rpc, rd.length);
+    result.push(...rp.slice(0, rpc), ...rd.slice(0, rdc));
   }
-  return shuffle(daily, seed + 3).slice(0, 5);
+
+  if (result.length < count) {
+    const rem = unseen.filter(b => !result.includes(b));
+    result.push(...shuffle(rem, seed + 2).slice(0, count - result.length));
+  }
+
+  return shuffle(result, seed + 3).slice(0, count);
 }
 
 const Discovery = () => {
   const { progress, settings, likeBook, dislikeBook } = useApp();
+  const { toast } = useToast();
 
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [swipedIds, setSwipedIds] = useState<string[]>([]);
+  const [pendingLikeBook, setPendingLikeBook] = useState<Book | null>(null);
+  const [allDiscoveryBooks, setAllDiscoveryBooks] = useState<Book[]>([]);
+  const toastTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const { feedBookIds, isLoggedIn, isLoading, getNextRefreshTime } = useDiscoveryFeed();
 
   // Session-based seed: new random set each time the component mounts (login/refresh)
   const sessionSeed = useRef(Math.floor(Math.random() * 1000000));
-  // Lock the initial liked/disliked lists at mount time so dailyBooks doesn't recompute on swipe
-  const initialLiked = useRef(progress.likedBooks);
-  const initialDisliked = useRef(progress.dislikedBooks);
+  // Counter for generating more books
+  const bookBatchCounter = useRef(0);
 
   const allBooks = useMemo(() => filterBooksByAge([...books, ...publicDomainBooks, ...shortStories, ...expandedBooks], settings.ageGroup), [settings.ageGroup]);
 
   const likedGenres = [...new Set(
-    allBooks.filter(b => initialLiked.current.includes(b.id)).map(b => b.genre)
+    allBooks.filter(b => progress.likedBooks.includes(b.id)).map(b => b.genre)
   )];
 
-  const dailyBooks = useMemo(() => {
-    // Try server-side feed first, always fall back to local random selection
-    if (isLoggedIn && feedBookIds.length > 0) {
-      const mapped = feedBookIds
-        .map(id => allBooks.find(b => b.id === id))
-        .filter((b): b is Book => !!b);
-      if (mapped.length > 0) return mapped.slice(0, 5);
-    }
-    return getRandomBooks(allBooks, initialLiked.current, initialDisliked.current, likedGenres, sessionSeed.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoggedIn, feedBookIds, allBooks]);
+  // Initialize and manage unlimited discovery books
+  useEffect(() => {
+    const readBooks = progress.likedBooks.concat(progress.dislikedBooks).concat(swipedIds);
+    const initialBooks = getRandomBooks(allBooks, progress.likedBooks, progress.dislikedBooks, likedGenres, readBooks, sessionSeed.current, 5);
+    setAllDiscoveryBooks(initialBooks);
+  }, []);
+
+  // Generate more books when reaching the end
+  const generateMoreBooks = () => {
+    const readBooks = progress.likedBooks.concat(progress.dislikedBooks).concat(swipedIds);
+    const newBatch = getRandomBooks(
+      allBooks,
+      progress.likedBooks,
+      progress.dislikedBooks,
+      likedGenres,
+      readBooks,
+      sessionSeed.current + bookBatchCounter.current,
+      5
+    );
+    bookBatchCounter.current++;
+    setAllDiscoveryBooks(prev => [...prev, ...newBatch]);
+  };
 
   const filteredBooks = useMemo(() => {
     if (!searchQuery.trim()) {
-      return dailyBooks.filter(b =>
+      return allDiscoveryBooks.filter(b =>
         !swipedIds.includes(b.id) &&
         !progress.likedBooks.includes(b.id) &&
         !progress.dislikedBooks.includes(b.id)
@@ -93,14 +127,54 @@ const Discovery = () => {
       const searchable = `${book.title} ${book.genre} ${book.summary}`.toLowerCase();
       return words.every(w => searchable.includes(w));
     });
-  }, [searchQuery, swipedIds, dailyBooks, progress.likedBooks, progress.dislikedBooks]);
+  }, [searchQuery, swipedIds, allDiscoveryBooks, progress.likedBooks, progress.dislikedBooks]);
+
+  // Check if we need to generate more books
+  useEffect(() => {
+    if (!searchQuery.trim() && filteredBooks.length <= 2 && allDiscoveryBooks.length > 0) {
+      generateMoreBooks();
+    }
+  }, [filteredBooks.length, searchQuery, allDiscoveryBooks.length]);
 
   const isSearchMode = searchQuery.trim().length > 0;
 
+  // Auto-dismiss toast after 4 seconds
+  useEffect(() => {
+    if (pendingLikeBook) {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => {
+        setPendingLikeBook(null);
+        toastTimeoutRef.current = null;
+      }, 4000);
+    }
+    return () => {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    };
+  }, [pendingLikeBook]);
+
   const handleSwipe = (book: Book, direction: 'left' | 'right') => {
-    if (direction === 'right') likeBook(book.id);
-    else dislikeBook(book.id);
+    if (direction === 'right') {
+      // Show like confirmation toast
+      setPendingLikeBook(book);
+    } else {
+      // Dislike immediately
+      dislikeBook(book.id);
+      setSwipedIds(prev => [...prev, book.id]);
+    }
+  };
+
+  const confirmLike = (book: Book) => {
+    likeBook(book.id);
     setSwipedIds(prev => [...prev, book.id]);
+    setPendingLikeBook(null);
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+  };
+
+  const openBook = (book: Book) => {
+    likeBook(book.id);
+    setPendingLikeBook(null);
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    navigate(`/read/${book.id}`);
   };
 
   const getBookStatus = (bookId: string) => {
@@ -171,6 +245,38 @@ const Discovery = () => {
   }
 
   if (filteredBooks.length === 0) {
+    // Check if truly exhausted (all books have been seen/disliked)
+    const allSeenOrDisliked = allDiscoveryBooks.length === 0 || 
+      allDiscoveryBooks.every(b => progress.likedBooks.includes(b.id) || progress.dislikedBooks.includes(b.id) || swipedIds.includes(b.id));
+    
+    if (allSeenOrDisliked && !isSearchMode) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-background">
+          <div className="absolute top-4 left-4 right-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search all books..." className="pl-10 rounded-2xl" />
+            </div>
+          </div>
+          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
+            <Sparkles className="w-16 h-16 text-primary mb-4 mx-auto" />
+          </motion.div>
+          <h2 className="font-display text-3xl mb-2">How did you finish all the books :-:</h2>
+          <p className="text-muted-foreground mb-4 text-center">
+            More coming soon though.
+          </p>
+          <div className="flex gap-3">
+            <button onClick={() => navigate('/foryou')} className="bg-primary text-primary-foreground px-5 py-2.5 rounded-2xl font-semibold hover:opacity-90 transition-opacity">
+              My Books →
+            </button>
+            <button onClick={() => navigate('/browse')} className="bg-muted text-foreground px-5 py-2.5 rounded-2xl font-semibold hover:bg-accent transition-colors">
+              Browse
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     return (
       <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-background">
         <div className="absolute top-4 left-4 right-4">
@@ -182,22 +288,16 @@ const Discovery = () => {
         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring' }}>
           <Sparkles className="w-16 h-16 text-primary mb-4 mx-auto" />
         </motion.div>
-        <h2 className="font-display text-3xl mb-2">{isLoggedIn ? "This Hour's Done!" : "All Done!"}</h2>
+        <h2 className="font-display text-3xl mb-2">No books found</h2>
         <p className="text-muted-foreground mb-4 text-center">
-          {isLoggedIn
-            ? "You've seen this hour's picks. New books are curated for you every hour!"
-            : "You've seen all picks! Check your liked books or browse the library."}
+          Try adjusting your search or filters.
         </p>
-        <div className="flex items-center gap-2 text-sm text-muted-foreground mb-6">
-          <Clock className="w-4 h-4" />
-          <span>New books in {refreshLabel}</span>
-        </div>
         <div className="flex gap-3">
-          <button onClick={() => navigate('/foryou')} className="bg-primary text-primary-foreground px-5 py-2.5 rounded-2xl font-semibold hover:opacity-90 transition-opacity">
-            My Books →
+          <button onClick={() => setSearchQuery('')} className="bg-primary text-primary-foreground px-5 py-2.5 rounded-2xl font-semibold hover:opacity-90 transition-opacity">
+            Clear Search
           </button>
-          <button onClick={() => navigate('/library')} className="bg-muted text-foreground px-5 py-2.5 rounded-2xl font-semibold hover:bg-accent transition-colors">
-            Library
+          <button onClick={() => navigate('/browse')} className="bg-muted text-foreground px-5 py-2.5 rounded-2xl font-semibold hover:bg-accent transition-colors">
+            Browse
           </button>
         </div>
       </div>
@@ -213,13 +313,38 @@ const Discovery = () => {
         </div>
       </div>
 
+      {/* Like confirmation toast */}
+      {pendingLikeBook && (
+        <motion.div
+          initial={{ y: -100, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
+          exit={{ y: -100, opacity: 0 }}
+          className="fixed top-20 left-4 right-4 z-50 bg-primary text-primary-foreground rounded-2xl p-4 shadow-lg"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <p className="font-semibold text-sm">Added to liked! Open and read?</p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => openBook(pendingLikeBook)}
+                className="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1"
+              >
+                <Check className="w-3 h-3" /> Open
+              </button>
+              <button
+                onClick={() => confirmLike(pendingLikeBook)}
+                className="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors"
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
       <h2 className="font-display text-2xl mb-1 mt-12">Your Picks</h2>
       <p className="text-muted-foreground mb-1 text-sm">Swipe right to like, left to pass</p>
-      {isLoggedIn && (
-        <p className="text-xs text-muted-foreground/70 mb-4 flex items-center gap-1">
-          <Clock className="w-3 h-3" /> Refreshes in {refreshLabel}
-        </p>
-      )}
 
       <div className="relative w-72 h-96">
         <AnimatePresence>
@@ -240,7 +365,7 @@ const Discovery = () => {
         </button>
       </div>
 
-      <p className="text-xs text-muted-foreground mt-4">{filteredBooks.length} of 5 picks remaining</p>
+      <p className="text-xs text-muted-foreground mt-4">{filteredBooks.length} books to explore</p>
     </div>
   );
 };
