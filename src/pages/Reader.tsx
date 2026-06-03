@@ -85,6 +85,31 @@ const Reader = () => {
   const hasMore       = !!(remaining?.text?.length > 500);
   const nextPartNumber = (remaining?.partNumber || 1) + 1;
 
+  // ── Retroactive migration: patch previousBookId if missing ────────────────
+  // Books loaded before this fix won't have previousBookId stored. We can infer
+  // it from the title pattern: "Alice (Part 2)" → previous is "Alice (Part 1)"
+  // i.e. just "Alice" for part 1, or "{base} (Part N-1)" for higher parts.
+  useEffect(() => {
+    if (!remaining || remaining.previousBookId || (remaining.partNumber || 1) < 2) return;
+    if (!remainingKey || !bookId) return;
+    try {
+      const allBooks: any[] = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
+      const currentBook = allBooks.find(b => b.id === bookId);
+      if (!currentBook) return;
+      const partN = remaining.partNumber as number;
+      const prevPartN = partN - 1;
+      const baseTitle = currentBook.title.replace(/ \(Part \d+\)$/i, '');
+      const prevTitle = prevPartN === 1 ? baseTitle : `${baseTitle} (Part ${prevPartN})`;
+      const prevBook = allBooks.find(b => b.title === prevTitle);
+      if (!prevBook) return;
+      // Patch the stored remaining entry with the inferred previousBookId
+      localStorage.setItem(remainingKey, JSON.stringify({
+        ...remaining,
+        previousBookId: prevBook.id,
+      }));
+    } catch { /* ignore */ }
+  }, [bookId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Resolve the previous part book (if this is Part 2+)
   const previousBookId = remaining?.previousBookId as string | undefined;
   const previousBook = (() => {
