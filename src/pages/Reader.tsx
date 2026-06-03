@@ -151,12 +151,23 @@ const Reader = () => {
   // ── Check for "more content" in localStorage ──────────────────────────────
   const remainingKey = bookId ? `bookquest-remaining-${bookId}` : null;
 
-  // useState so migration patches (below) trigger a re-render immediately,
-  // making the ← Part N back button appear without needing a page refresh.
+  // useState so migration patches (below) trigger a re-render immediately.
+  // The lazy initialiser handles the very first mount; the useEffect below
+  // re-syncs whenever bookId changes (same component instance, new book via
+  // React Router navigation — without this the state stays stale from the
+  // previous book and "Load Part N" creates the wrong part number).
   const [remaining, setRemaining] = useState<any>(() => {
     if (!remainingKey) return null;
     try { return JSON.parse(localStorage.getItem(remainingKey) || 'null'); } catch { return null; }
   });
+
+  useEffect(() => {
+    if (!remainingKey) { setRemaining(null); return; }
+    try {
+      const raw = localStorage.getItem(remainingKey);
+      setRemaining(raw ? JSON.parse(raw) : null);
+    } catch { setRemaining(null); }
+  }, [remainingKey]); // re-read whenever bookId changes
 
   const hasMore        = !!(remaining?.text?.length > 500);
   const nextPartNumber = (remaining?.partNumber || 1) + 1;
