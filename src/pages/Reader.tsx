@@ -21,62 +21,55 @@ import { toast } from 'sonner';
 const allBooks = [...books, ...publicDomainBooks, ...shortStories, ...expandedBooks];
 
 // ── Real-time book data cleaner ───────────────────────────────────────────────
-// Gutenberg books often have two problems:
-//  1. The book's own embedded TOC gets parsed as chapter entries (stubs with
-//     very little text), creating duplicates alongside the real chapters.
-//  2. Lots of preamble (copyright, letters, preface) before chapter 1.
-// This runs at render time so ALL imported books are cleaned without any
-// changes to the edge function or stored data.
+// Gutenberg plain-text files have two common problems after AI processing:
+//
+//  1. The book's own embedded contents page gets parsed as individual "stub"
+//     TOC entries — pages whose text is just "Chapter 4" or similar (< 150 chars).
+//     These should be removed from both the TOC and the page stream.
+//
+//  2. Pages before the first real chapter (preface, letters, licensing, the
+//     embedded text TOC itself) should be trimmed so Chapter 1 is page 1.
+//
+// Both are fixed here at render time without touching any stored data.
 function cleanBookData(rawBook: any): any {
   const pages: any[]  = rawBook.pages || [];
   const contentsPage  = pages[0];
-  if (!contentsPage?.isContentsPage) return rawBook;        // not an imported book
+  if (!contentsPage?.isContentsPage) return rawBook;
   const toc: { title: string; pageIndex: number }[] =
     contentsPage.tableOfContents || [];
   if (toc.length === 0) return rawBook;
 
-  // Step 1 — Dedup TOC entries
-  // Same chapter title can appear twice: once as a short stub (from the
-  // embedded text TOC) and once at the real chapter (full content).
-  // Keep whichever occurrence's page has MORE text content.
-  const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const best = new Map<string, { title: string; pageIndex: number; len: number }>();
-  for (const entry of toc) {
-    const key = normalize(entry.title);
-    const len = pages[entry.pageIndex]?.text?.length ?? 0;
-    const ex  = best.get(key);
-    if (!ex || len > ex.len) best.set(key, { ...entry, len });
-  }
-  const deduped = Array.from(best.values())
-    .sort((a, b) => a.pageIndex - b.pageIndex)
-    .map(({ len: _l, ...e }) => e);
+  // Any TOC entry whose page has fewer than 150 chars is a stub (the book's
+  // own embedded chapter listing, not real chapter content).
+  const STUB_MAX = 150;
+  const realEntries = toc.filter(
+    e => (pages[e.pageIndex]?.text || '').trim().length >= STUB_MAX,
+  );
 
-  // Step 2 — Find where real content starts
-  // = the pageIndex of the first (lowest) deduped TOC entry.
-  // Everything before it is preamble we can safely discard.
-  const startPage = deduped[0]?.pageIndex ?? 0;
-  const hasPreamble = startPage > 2; // keep a cover page or two
+  // If every entry is a stub the book may be structured differently — leave it alone.
+  if (realEntries.length === 0) return rawBook;
 
-  if (!hasPreamble) {
-    // Just apply dedup, no slice needed
+  const firstRealIdx = realEntries[0].pageIndex;
+
+  // Nothing to trim — real content already starts at/near the top.
+  if (firstRealIdx <= 1) {
     return {
       ...rawBook,
-      pages: [
-        { ...contentsPage, tableOfContents: deduped },
-        ...pages.slice(1),
-      ],
+      pages: [{ ...contentsPage, tableOfContents: realEntries }, ...pages.slice(1)],
     };
   }
 
-  // Step 3 — Slice pages and remap TOC indices
-  // Keep pages[0] (ContentsPage) then splice in only the real content pages.
-  // TOC indices shift by (startPage - 1) because the ContentsPage stays at 0.
-  const shift = startPage - 1;
+  // Slice off all preamble + embedded-TOC stub pages.
+  // ContentsPage stays at index 0; everything else shifts by (firstRealIdx − 1).
+  const shift = firstRealIdx - 1;
   return {
     ...rawBook,
     pages: [
-      { ...contentsPage, tableOfContents: deduped.map(e => ({ ...e, pageIndex: e.pageIndex - shift })) },
-      ...pages.slice(startPage),
+      {
+        ...contentsPage,
+        tableOfContents: realEntries.map(e => ({ ...e, pageIndex: e.pageIndex - shift })),
+      },
+      ...pages.slice(firstRealIdx),
     ],
   };
 }
