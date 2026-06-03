@@ -161,27 +161,54 @@ const Reader = () => {
   const hasMore        = !!(remaining?.text?.length > 500);
   const nextPartNumber = (remaining?.partNumber || 1) + 1;
 
-  // ── Retroactive migration: patch previousBookId if missing ────────────────
-  // Books loaded before this fix won't have previousBookId stored. We infer
-  // it from the title pattern: "Alice (Part 2)" → previous is "Alice (Part 1)".
-  // Calling setRemaining() after patching ensures the back button renders
-  // immediately without waiting for a page refresh.
+  // ── Retroactive migrations ────────────────────────────────────────────────
+  // Fixes two issues affecting books loaded before current code was deployed:
+  //
+  // Fix 1 — partNumber wrong: Part 2 books kept partNumber=1 in their
+  //   remaining entry, so the button showed "Load Part 2" instead of
+  //   "Load Part 3" and created duplicate books on click.
+  //   Solution: derive the correct partNumber from the book title.
+  //
+  // Fix 2 — previousBookId missing: back-navigation button never appeared.
+  //   Solution: infer it from title pattern "Alice (Part 2)" → "Alice".
+  //
+  // setRemaining() triggers an immediate re-render so the UI corrects itself.
   useEffect(() => {
-    if (!remaining || remaining.previousBookId || (remaining.partNumber || 1) < 2) return;
-    if (!remainingKey || !bookId) return;
+    if (!remaining || !remainingKey || !bookId) return;
     try {
       const allImported: any[] = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
-      const currentBook = allImported.find(b => b.id === bookId);
+      const currentBook = allImported.find((b: any) => b.id === bookId);
       if (!currentBook) return;
-      const partN    = remaining.partNumber as number;
-      const prevPartN = partN - 1;
-      const baseTitle = currentBook.title.replace(/ \(Part \d+\)$/i, '');
-      const prevTitle = prevPartN === 1 ? baseTitle : `${baseTitle} (Part ${prevPartN})`;
-      const prevBook  = allImported.find(b => b.title === prevTitle);
-      if (!prevBook) return;
-      const patched = { ...remaining, previousBookId: prevBook.id };
-      localStorage.setItem(remainingKey, JSON.stringify(patched));
-      setRemaining(patched); // triggers re-render → back button appears immediately
+
+      let patched = { ...remaining };
+      let dirty   = false;
+
+      // Fix 1: partNumber must match what the title says
+      const titleMatch   = currentBook.title.match(/\(Part (\d+)\)$/i);
+      const titlePartNum = titleMatch ? parseInt(titleMatch[1], 10) : null;
+      if (titlePartNum && patched.partNumber !== titlePartNum) {
+        patched = { ...patched, partNumber: titlePartNum };
+        dirty   = true;
+      }
+
+      // Fix 2: previousBookId for back-navigation
+      if (!patched.previousBookId && (patched.partNumber || 1) >= 2) {
+        const partN     = patched.partNumber as number;
+        const baseTitle = currentBook.title.replace(/\s*\(Part \d+\)$/i, '');
+        const prevTitle = partN - 1 === 1
+          ? baseTitle
+          : `${baseTitle} (Part ${partN - 1})`;
+        const prevBook  = allImported.find((b: any) => b.title === prevTitle);
+        if (prevBook) {
+          patched = { ...patched, previousBookId: prevBook.id };
+          dirty   = true;
+        }
+      }
+
+      if (dirty) {
+        localStorage.setItem(remainingKey, JSON.stringify(patched));
+        setRemaining(patched);
+      }
     } catch { /* ignore */ }
   }, [bookId]); // eslint-disable-line react-hooks/exhaustive-deps
 
