@@ -83,6 +83,19 @@ const Reader = () => {
   const remainingRaw  = remainingKey ? localStorage.getItem(remainingKey) : null;
   const remaining     = (() => { try { return remainingRaw ? JSON.parse(remainingRaw) : null; } catch { return null; } })();
   const hasMore       = !!(remaining?.text?.length > 500);
+  const nextPartNumber = (remaining?.partNumber || 1) + 1;
+
+  // Resolve the previous part book (if this is Part 2+)
+  const previousBookId = remaining?.previousBookId as string | undefined;
+  const previousBook = (() => {
+    if (!previousBookId) return null;
+    try {
+      const all = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
+      const prev = all.find((b: any) => b.id === previousBookId);
+      if (!prev) return null;
+      return { id: previousBookId, title: prev.title, partNumber: (remaining?.partNumber || 2) - 1 };
+    } catch { return null; }
+  })();
 
   // ── Scroll tracking ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -150,11 +163,14 @@ const Reader = () => {
       });
       localStorage.setItem('bookquest-imported', JSON.stringify(stored));
 
-      // Chain remaining text to the new book
+      // Chain remaining text to the new book — include previousBookId so Part N+1 can navigate back
       const nextRemaining = remaining.text.slice(50000);
       if (nextRemaining.length > 500) {
         localStorage.setItem(`bookquest-remaining-${data.bookId}`, JSON.stringify({
-          ...remaining, text: nextRemaining, partNumber: partNum,
+          ...remaining,
+          text: nextRemaining,
+          partNumber: partNum,
+          previousBookId: bookId,   // ← back-link to this book
         }));
       }
       if (remainingKey) localStorage.removeItem(remainingKey);
@@ -224,6 +240,9 @@ const Reader = () => {
                 hasMore={hasMore}
                 onLoadMore={handleLoadMore}
                 loadingMore={loadingMore}
+                nextPartNumber={nextPartNumber}
+                previousBook={previousBook}
+                onGoToPrevious={previousBook ? () => navigate(`/read/${previousBook.id}`) : undefined}
               />
             );
           }
