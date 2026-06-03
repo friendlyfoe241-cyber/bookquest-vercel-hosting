@@ -21,16 +21,17 @@ import { toast } from 'sonner';
 const allBooks = [...books, ...publicDomainBooks, ...shortStories, ...expandedBooks];
 
 // ── Real-time book data cleaner ───────────────────────────────────────────────
-// Gutenberg plain-text files have two common problems after AI processing:
+// Gutenberg plain-text files cause two problems after AI processing:
 //
-//  1. The book's own embedded contents page gets parsed as individual "stub"
-//     TOC entries — pages whose text is just "Chapter 4" or similar (< 150 chars).
-//     These should be removed from both the TOC and the page stream.
+//  1. The book's own embedded CONTENTS section is parsed as individual TOC
+//     entries. These "stub" entries sit at CONSECUTIVE page indices (gap ≤ 2)
+//     and have SHORT page text (< 300 chars) — a combination that never occurs
+//     for real chapters, which have large gaps between them.
 //
-//  2. Pages before the first real chapter (preface, letters, licensing, the
-//     embedded text TOC itself) should be trimmed so Chapter 1 is page 1.
+//  2. Everything before the first real chapter (preface, letters, the embedded
+//     CONTENTS pages themselves) should be trimmed so Chapter 1 = page 1.
 //
-// Both are fixed here at render time without touching any stored data.
+// This runs at render time — no stored data is touched.
 function cleanBookData(rawBook: any): any {
   const pages: any[]  = rawBook.pages || [];
   const contentsPage  = pages[0];
@@ -39,19 +40,31 @@ function cleanBookData(rawBook: any): any {
     contentsPage.tableOfContents || [];
   if (toc.length === 0) return rawBook;
 
-  // Any TOC entry whose page has fewer than 150 chars is a stub (the book's
-  // own embedded chapter listing, not real chapter content).
-  const STUB_MAX = 150;
-  const realEntries = toc.filter(
-    e => (pages[e.pageIndex]?.text || '').trim().length >= STUB_MAX,
-  );
+  const sorted = [...toc].sort((a, b) => a.pageIndex - b.pageIndex);
 
-  // If every entry is a stub the book may be structured differently — leave it alone.
+  // A TOC entry is a stub if its page has short text AND sits right next to
+  // a neighbour (gap ≤ 2).  Real chapters always have long text OR big gaps.
+  const CONTENT_MIN  = 300; // chars — genuine chapter pages have more than this
+  const CONSEC_MAX   = 2;   // pages — embedded-TOC entries are back-to-back
+
+  const realEntries = sorted.filter((entry, i) => {
+    const text = (pages[entry.pageIndex]?.text || '').trim();
+    if (text.length >= CONTENT_MIN) return true; // long content → always real
+
+    const prev = sorted[i - 1];
+    const next = sorted[i + 1];
+    const gapBefore = prev ? entry.pageIndex - prev.pageIndex : Infinity;
+    const gapAfter  = next ? next.pageIndex  - entry.pageIndex : Infinity;
+
+    // Short content + consecutive neighbour = embedded CONTENTS stub → remove
+    return gapBefore > CONSEC_MAX && gapAfter > CONSEC_MAX;
+  });
+
+  // Safety: if every entry was flagged (unusual book structure) keep original
   if (realEntries.length === 0) return rawBook;
 
   const firstRealIdx = realEntries[0].pageIndex;
 
-  // Nothing to trim — real content already starts at/near the top.
   if (firstRealIdx <= 1) {
     return {
       ...rawBook,
@@ -59,8 +72,7 @@ function cleanBookData(rawBook: any): any {
     };
   }
 
-  // Slice off all preamble + embedded-TOC stub pages.
-  // ContentsPage stays at index 0; everything else shifts by (firstRealIdx − 1).
+  // Slice off all preamble + stub pages; ContentsPage stays at 0.
   const shift = firstRealIdx - 1;
   return {
     ...rawBook,
