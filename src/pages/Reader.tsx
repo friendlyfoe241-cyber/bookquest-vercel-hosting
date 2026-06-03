@@ -20,17 +20,82 @@ import { toast } from 'sonner';
 
 const allBooks = [...books, ...publicDomainBooks, ...shortStories, ...expandedBooks];
 
+// ── Real-time book data cleaner ───────────────────────────────────────────────
+// Gutenberg books often have two problems:
+//  1. The book's own embedded TOC gets parsed as chapter entries (stubs with
+//     very little text), creating duplicates alongside the real chapters.
+//  2. Lots of preamble (copyright, letters, preface) before chapter 1.
+// This runs at render time so ALL imported books are cleaned without any
+// changes to the edge function or stored data.
+function cleanBookData(rawBook: any): any {
+  const pages: any[]  = rawBook.pages || [];
+  const contentsPage  = pages[0];
+  if (!contentsPage?.isContentsPage) return rawBook;        // not an imported book
+  const toc: { title: string; pageIndex: number }[] =
+    contentsPage.tableOfContents || [];
+  if (toc.length === 0) return rawBook;
+
+  // Step 1 — Dedup TOC entries
+  // Same chapter title can appear twice: once as a short stub (from the
+  // embedded text TOC) and once at the real chapter (full content).
+  // Keep whichever occurrence's page has MORE text content.
+  const normalize = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const best = new Map<string, { title: string; pageIndex: number; len: number }>();
+  for (const entry of toc) {
+    const key = normalize(entry.title);
+    const len = pages[entry.pageIndex]?.text?.length ?? 0;
+    const ex  = best.get(key);
+    if (!ex || len > ex.len) best.set(key, { ...entry, len });
+  }
+  const deduped = Array.from(best.values())
+    .sort((a, b) => a.pageIndex - b.pageIndex)
+    .map(({ len: _l, ...e }) => e);
+
+  // Step 2 — Find where real content starts
+  // = the pageIndex of the first (lowest) deduped TOC entry.
+  // Everything before it is preamble we can safely discard.
+  const startPage = deduped[0]?.pageIndex ?? 0;
+  const hasPreamble = startPage > 2; // keep a cover page or two
+
+  if (!hasPreamble) {
+    // Just apply dedup, no slice needed
+    return {
+      ...rawBook,
+      pages: [
+        { ...contentsPage, tableOfContents: deduped },
+        ...pages.slice(1),
+      ],
+    };
+  }
+
+  // Step 3 — Slice pages and remap TOC indices
+  // Keep pages[0] (ContentsPage) then splice in only the real content pages.
+  // TOC indices shift by (startPage - 1) because the ContentsPage stays at 0.
+  const shift = startPage - 1;
+  return {
+    ...rawBook,
+    pages: [
+      { ...contentsPage, tableOfContents: deduped.map(e => ({ ...e, pageIndex: e.pageIndex - shift })) },
+      ...pages.slice(startPage),
+    ],
+  };
+}
+
 const Reader = () => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate   = useNavigate();
   const { markBookRead } = useApp();
 
-  const book = allBooks.find(b => b.id === bookId) || (() => {
+  // Memoized so the clean pass only runs once per bookId, not every render
+  const book = useMemo(() => {
+    const staticBook = allBooks.find(b => b.id === bookId);
+    if (staticBook) return staticBook; // curated books need no cleaning
     try {
       const imported = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
-      return imported.find((b: any) => b.id === bookId) || null;
+      const raw = imported.find((b: any) => b.id === bookId) || null;
+      return raw ? cleanBookData(raw) : null;
     } catch { return null; }
-  })();
+  }, [bookId]);
 
   const { progress, ready, loadedCount } = useImagePreloader(book);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -79,34 +144,39 @@ const Reader = () => {
   const page = book?.pages[currentPage];
 
   // ── Check for "more content" in localStorage ──────────────────────────────
-  const remainingKey  = bookId ? `bookquest-remaining-${bookId}` : null;
-  const remainingRaw  = remainingKey ? localStorage.getItem(remainingKey) : null;
-  const remaining     = (() => { try { return remainingRaw ? JSON.parse(remainingRaw) : null; } catch { return null; } })();
-  const hasMore       = !!(remaining?.text?.length > 500);
+  const remainingKey = bookId ? `bookquest-remaining-${bookId}` : null;
+
+  // useState so migration patches (below) trigger a re-render immediately,
+  // making the ← Part N back button appear without needing a page refresh.
+  const [remaining, setRemaining] = useState<any>(() => {
+    if (!remainingKey) return null;
+    try { return JSON.parse(localStorage.getItem(remainingKey) || 'null'); } catch { return null; }
+  });
+
+  const hasMore        = !!(remaining?.text?.length > 500);
   const nextPartNumber = (remaining?.partNumber || 1) + 1;
 
   // ── Retroactive migration: patch previousBookId if missing ────────────────
-  // Books loaded before this fix won't have previousBookId stored. We can infer
-  // it from the title pattern: "Alice (Part 2)" → previous is "Alice (Part 1)"
-  // i.e. just "Alice" for part 1, or "{base} (Part N-1)" for higher parts.
+  // Books loaded before this fix won't have previousBookId stored. We infer
+  // it from the title pattern: "Alice (Part 2)" → previous is "Alice (Part 1)".
+  // Calling setRemaining() after patching ensures the back button renders
+  // immediately without waiting for a page refresh.
   useEffect(() => {
     if (!remaining || remaining.previousBookId || (remaining.partNumber || 1) < 2) return;
     if (!remainingKey || !bookId) return;
     try {
-      const allBooks: any[] = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
-      const currentBook = allBooks.find(b => b.id === bookId);
+      const allImported: any[] = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
+      const currentBook = allImported.find(b => b.id === bookId);
       if (!currentBook) return;
-      const partN = remaining.partNumber as number;
+      const partN    = remaining.partNumber as number;
       const prevPartN = partN - 1;
       const baseTitle = currentBook.title.replace(/ \(Part \d+\)$/i, '');
       const prevTitle = prevPartN === 1 ? baseTitle : `${baseTitle} (Part ${prevPartN})`;
-      const prevBook = allBooks.find(b => b.title === prevTitle);
+      const prevBook  = allImported.find(b => b.title === prevTitle);
       if (!prevBook) return;
-      // Patch the stored remaining entry with the inferred previousBookId
-      localStorage.setItem(remainingKey, JSON.stringify({
-        ...remaining,
-        previousBookId: prevBook.id,
-      }));
+      const patched = { ...remaining, previousBookId: prevBook.id };
+      localStorage.setItem(remainingKey, JSON.stringify(patched));
+      setRemaining(patched); // triggers re-render → back button appears immediately
     } catch { /* ignore */ }
   }, [bookId]); // eslint-disable-line react-hooks/exhaustive-deps
 
