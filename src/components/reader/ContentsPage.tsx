@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { BookOpen, ChevronRight } from 'lucide-react';
+import { BookOpen, ChevronRight, ChevronLeft } from 'lucide-react';
 
 interface TocEntry { title: string; pageIndex: number; }
 
@@ -10,6 +10,9 @@ interface ContentsPageProps {
   hasMore?: boolean;
   onLoadMore?: () => void;
   loadingMore?: boolean;
+  nextPartNumber?: number;        // e.g. 2, 3, 4 …
+  previousBook?: { id: string; title: string; partNumber: number } | null;
+  onGoToPrevious?: () => void;
 }
 
 // Parse "CHAPTER I. A Scandal in Bohemia" → { num: "I.", title: "A Scandal in Bohemia" }
@@ -24,7 +27,10 @@ function parseHeading(heading: string): { num: string; title: string } {
 }
 
 const ContentsPage = ({
-  book, toc, onJumpToPage, hasMore, onLoadMore, loadingMore,
+  book, toc, onJumpToPage,
+  hasMore, onLoadMore, loadingMore,
+  nextPartNumber = 2,
+  previousBook, onGoToPrevious,
 }: ContentsPageProps) => {
   return (
     <div className="w-full h-full flex-shrink-0 snap-start flex flex-col bg-background overflow-hidden">
@@ -45,6 +51,22 @@ const ContentsPage = ({
 
       {/* Chapter list — scrollable */}
       <div className="flex-1 overflow-y-auto px-4 py-2 min-h-0">
+
+        {/* ← Previous part button */}
+        {previousBook && onGoToPrevious && (
+          <motion.button
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            onClick={onGoToPrevious}
+            className="w-full flex items-center gap-3 py-3 px-3 rounded-xl hover:bg-muted/60 active:bg-muted text-left transition-colors mb-2 border border-dashed border-muted-foreground/25"
+          >
+            <ChevronLeft className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+            <span className="flex-1 text-sm font-medium text-muted-foreground">
+              ← Part {previousBook.partNumber} · {previousBook.title}
+            </span>
+          </motion.button>
+        )}
+
         {toc.map((entry, i) => {
           const { num, title } = parseHeading(entry.title);
           return (
@@ -69,7 +91,7 @@ const ContentsPage = ({
           );
         })}
 
-        {/* "More chapters" entry if book was truncated */}
+        {/* → Next part button */}
         {hasMore && (
           <motion.button
             initial={{ opacity: 0 }}
@@ -77,11 +99,13 @@ const ContentsPage = ({
             transition={{ delay: toc.length * 0.03 + 0.1 }}
             onClick={onLoadMore}
             disabled={loadingMore}
-            className="w-full flex items-center gap-3 py-3 px-3 rounded-xl hover:bg-primary/10 active:bg-primary/20 text-left transition-colors mt-1 border border-dashed border-primary/30"
+            className="w-full flex items-center gap-3 py-3 px-3 rounded-xl hover:bg-primary/10 active:bg-primary/20 text-left transition-colors mt-2 border border-dashed border-primary/30"
           >
             <BookOpen className="w-4 h-4 text-primary flex-shrink-0" />
             <span className="flex-1 text-sm font-medium text-primary">
-              {loadingMore ? 'Loading next section…' : 'More chapters → Load Part 2'}
+              {loadingMore
+                ? `Loading Part ${nextPartNumber}…`
+                : `More chapters → Load Part ${nextPartNumber}`}
             </span>
             {!loadingMore && <ChevronRight className="w-3.5 h-3.5 text-primary flex-shrink-0" />}
           </motion.button>

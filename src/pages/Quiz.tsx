@@ -116,6 +116,7 @@ const Quiz = () => {
       if (nextRemaining.length > 500) {
         localStorage.setItem(`bookquest-remaining-${data.bookId}`, JSON.stringify({
           ...remaining, text: nextRemaining, partNumber: partNum,
+          previousBookId: bookId,
         }));
       }
       localStorage.removeItem(remainingKey);

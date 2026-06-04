@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '@/contexts/AppContext';
 import { books } from '@/data/books';
@@ -20,17 +20,87 @@ import { toast } from 'sonner';
 
 const allBooks = [...books, ...publicDomainBooks, ...shortStories, ...expandedBooks];
 
+// ── Real-time book data cleaner ───────────────────────────────────────────────
+// Gutenberg plain-text files cause two problems after AI processing:
+//
+//  1. The book's own embedded CONTENTS section is parsed as individual TOC
+//     entries. These "stub" entries sit at CONSECUTIVE page indices (gap ≤ 2)
+//     and have SHORT page text (< 300 chars) — a combination that never occurs
+//     for real chapters, which have large gaps between them.
+//
+//  2. Everything before the first real chapter (preface, letters, the embedded
+//     CONTENTS pages themselves) should be trimmed so Chapter 1 = page 1.
+//
+// This runs at render time — no stored data is touched.
+function cleanBookData(rawBook: any): any {
+  const pages: any[]  = rawBook.pages || [];
+  const contentsPage  = pages[0];
+  if (!contentsPage?.isContentsPage) return rawBook;
+  const toc: { title: string; pageIndex: number }[] =
+    contentsPage.tableOfContents || [];
+  if (toc.length === 0) return rawBook;
+
+  const sorted = [...toc].sort((a, b) => a.pageIndex - b.pageIndex);
+
+  // A TOC entry is a stub if its page has short text AND sits right next to
+  // a neighbour (gap ≤ 2).  Real chapters always have long text OR big gaps.
+  const CONTENT_MIN  = 300; // chars — genuine chapter pages have more than this
+  const CONSEC_MAX   = 2;   // pages — embedded-TOC entries are back-to-back
+
+  const realEntries = sorted.filter((entry, i) => {
+    const text = (pages[entry.pageIndex]?.text || '').trim();
+    if (text.length >= CONTENT_MIN) return true; // long content → always real
+
+    const prev = sorted[i - 1];
+    const next = sorted[i + 1];
+    const gapBefore = prev ? entry.pageIndex - prev.pageIndex : Infinity;
+    const gapAfter  = next ? next.pageIndex  - entry.pageIndex : Infinity;
+
+    // Short content + consecutive neighbour = embedded CONTENTS stub → remove
+    return gapBefore > CONSEC_MAX && gapAfter > CONSEC_MAX;
+  });
+
+  // Safety: if every entry was flagged (unusual book structure) keep original
+  if (realEntries.length === 0) return rawBook;
+
+  const firstRealIdx = realEntries[0].pageIndex;
+
+  if (firstRealIdx <= 1) {
+    return {
+      ...rawBook,
+      pages: [{ ...contentsPage, tableOfContents: realEntries }, ...pages.slice(1)],
+    };
+  }
+
+  // Slice off all preamble + stub pages; ContentsPage stays at 0.
+  const shift = firstRealIdx - 1;
+  return {
+    ...rawBook,
+    pages: [
+      {
+        ...contentsPage,
+        tableOfContents: realEntries.map(e => ({ ...e, pageIndex: e.pageIndex - shift })),
+      },
+      ...pages.slice(firstRealIdx),
+    ],
+  };
+}
+
 const Reader = () => {
   const { bookId } = useParams<{ bookId: string }>();
   const navigate   = useNavigate();
   const { markBookRead } = useApp();
 
-  const book = allBooks.find(b => b.id === bookId) || (() => {
+  // Memoized so the clean pass only runs once per bookId, not every render
+  const book = useMemo(() => {
+    const staticBook = allBooks.find(b => b.id === bookId);
+    if (staticBook) return staticBook; // curated books need no cleaning
     try {
       const imported = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
-      return imported.find((b: any) => b.id === bookId) || null;
+      const raw = imported.find((b: any) => b.id === bookId) || null;
+      return raw ? cleanBookData(raw) : null;
     } catch { return null; }
-  })();
+  }, [bookId]);
 
   const { progress, ready, loadedCount } = useImagePreloader(book);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -79,10 +149,91 @@ const Reader = () => {
   const page = book?.pages[currentPage];
 
   // ── Check for "more content" in localStorage ──────────────────────────────
-  const remainingKey  = bookId ? `bookquest-remaining-${bookId}` : null;
-  const remainingRaw  = remainingKey ? localStorage.getItem(remainingKey) : null;
-  const remaining     = (() => { try { return remainingRaw ? JSON.parse(remainingRaw) : null; } catch { return null; } })();
-  const hasMore       = !!(remaining?.text?.length > 500);
+  const remainingKey = bookId ? `bookquest-remaining-${bookId}` : null;
+
+  // useState so migration patches (below) trigger a re-render immediately.
+  // The lazy initialiser handles the very first mount; the useEffect below
+  // re-syncs whenever bookId changes (same component instance, new book via
+  // React Router navigation — without this the state stays stale from the
+  // previous book and "Load Part N" creates the wrong part number).
+  const [remaining, setRemaining] = useState<any>(() => {
+    if (!remainingKey) return null;
+    try { return JSON.parse(localStorage.getItem(remainingKey) || 'null'); } catch { return null; }
+  });
+
+  useEffect(() => {
+    if (!remainingKey) { setRemaining(null); return; }
+    try {
+      const raw = localStorage.getItem(remainingKey);
+      setRemaining(raw ? JSON.parse(raw) : null);
+    } catch { setRemaining(null); }
+  }, [remainingKey]); // re-read whenever bookId changes
+
+  const hasMore        = !!(remaining?.text?.length > 500);
+  const nextPartNumber = (remaining?.partNumber || 1) + 1;
+
+  // ── Retroactive migrations ────────────────────────────────────────────────
+  // Fixes two issues affecting books loaded before current code was deployed:
+  //
+  // Fix 1 — partNumber wrong: Part 2 books kept partNumber=1 in their
+  //   remaining entry, so the button showed "Load Part 2" instead of
+  //   "Load Part 3" and created duplicate books on click.
+  //   Solution: derive the correct partNumber from the book title.
+  //
+  // Fix 2 — previousBookId missing: back-navigation button never appeared.
+  //   Solution: infer it from title pattern "Alice (Part 2)" → "Alice".
+  //
+  // setRemaining() triggers an immediate re-render so the UI corrects itself.
+  useEffect(() => {
+    if (!remaining || !remainingKey || !bookId) return;
+    try {
+      const allImported: any[] = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
+      const currentBook = allImported.find((b: any) => b.id === bookId);
+      if (!currentBook) return;
+
+      let patched = { ...remaining };
+      let dirty   = false;
+
+      // Fix 1: partNumber must match what the title says
+      const titleMatch   = currentBook.title.match(/\(Part (\d+)\)$/i);
+      const titlePartNum = titleMatch ? parseInt(titleMatch[1], 10) : null;
+      if (titlePartNum && patched.partNumber !== titlePartNum) {
+        patched = { ...patched, partNumber: titlePartNum };
+        dirty   = true;
+      }
+
+      // Fix 2: previousBookId for back-navigation
+      if (!patched.previousBookId && (patched.partNumber || 1) >= 2) {
+        const partN     = patched.partNumber as number;
+        const baseTitle = currentBook.title.replace(/\s*\(Part \d+\)$/i, '');
+        const prevTitle = partN - 1 === 1
+          ? baseTitle
+          : `${baseTitle} (Part ${partN - 1})`;
+        const prevBook  = allImported.find((b: any) => b.title === prevTitle);
+        if (prevBook) {
+          patched = { ...patched, previousBookId: prevBook.id };
+          dirty   = true;
+        }
+      }
+
+      if (dirty) {
+        localStorage.setItem(remainingKey, JSON.stringify(patched));
+        setRemaining(patched);
+      }
+    } catch { /* ignore */ }
+  }, [bookId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Resolve the previous part book (if this is Part 2+)
+  const previousBookId = remaining?.previousBookId as string | undefined;
+  const previousBook = (() => {
+    if (!previousBookId) return null;
+    try {
+      const all = JSON.parse(localStorage.getItem('bookquest-imported') || '[]');
+      const prev = all.find((b: any) => b.id === previousBookId);
+      if (!prev) return null;
+      return { id: previousBookId, title: prev.title, partNumber: (remaining?.partNumber || 2) - 1 };
+    } catch { return null; }
+  })();
 
   // ── Scroll tracking ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -150,11 +301,14 @@ const Reader = () => {
       });
       localStorage.setItem('bookquest-imported', JSON.stringify(stored));
 
-      // Chain remaining text to the new book
+      // Chain remaining text to the new book — include previousBookId so Part N+1 can navigate back
       const nextRemaining = remaining.text.slice(50000);
       if (nextRemaining.length > 500) {
         localStorage.setItem(`bookquest-remaining-${data.bookId}`, JSON.stringify({
-          ...remaining, text: nextRemaining, partNumber: partNum,
+          ...remaining,
+          text: nextRemaining,
+          partNumber: partNum,
+          previousBookId: bookId,   // ← back-link to this book
         }));
       }
       if (remainingKey) localStorage.removeItem(remainingKey);
@@ -224,6 +378,9 @@ const Reader = () => {
                 hasMore={hasMore}
                 onLoadMore={handleLoadMore}
                 loadingMore={loadingMore}
+                nextPartNumber={nextPartNumber}
+                previousBook={previousBook}
+                onGoToPrevious={previousBook ? () => navigate(`/read/${previousBook.id}`) : undefined}
               />
             );
           }
