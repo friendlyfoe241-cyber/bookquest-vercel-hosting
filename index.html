@@ -3,40 +3,53 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- TODO: Set the document title to the name of your application -->
-    <title>Book Quest</title>
-    <meta name="description" content="Book for everyone and anyone, even if you just started or have been reading since you have been born">
-    <meta name="author" content="Lovable" />
+    
+    <!-- 1. Primary SEO Tags -->
+    <title>Book Quest | Interactive Book Discovery Game</title>
+    <meta name="description" content="Discover your next favorite read with Book Quest. An interactive game for all readers, from complete beginners to lifelong bookworms." />
+    <meta name="author" content="Book Quest Team" />
+    <link rel="canonical" href="https://bookquestgame.vercel.app" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
 
-    <!-- TODO: Update og:title to match your application name -->
-    
-    
+    <!-- 2. Open Graph / Facebook Meta Tags -->
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/3kEWpNGaVMVXuDvbNQ2kfYOe2yX2/social-images/social-1775156651904-book_quest_pic.webp">
+    <meta property="og:url" content="https://bookquestgame.vercel.app" />
+    <meta property="og:title" content="Book Quest | Interactive Book Discovery Game" />
+    <meta property="og:description" content="Discover your next favorite read with Book Quest. An interactive game for all readers, from complete beginners to lifelong bookworms." />
+    <meta property="og:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/3kEWpNGaVMVXuDvbNQ2kfYOe2yX2/social-images/social-1775156651904-book_quest_pic.webp" />
 
+    <!-- 3. Twitter Meta Tags -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Lovable" />
-    <meta name="twitter:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/3kEWpNGaVMVXuDvbNQ2kfYOe2yX2/social-images/social-1775156651904-book_quest_pic.webp">
-    
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  <meta property="og:title" content="Book Quest">
-  <meta name="twitter:title" content="Book Quest">
-  <meta property="og:description" content="Book for everyone and anyone, even if you just started or have been reading since you have been born">
-  <meta name="twitter:description" content="Book for everyone and anyone, even if you just started or have been reading since you have been born">
-  <link rel="icon" type="image/x-icon" href="/favicon.ico">
-</head>
+    <meta name="twitter:site" content="@Bookquest" />
+    <meta name="twitter:title" content="Book Quest | Interactive Book Discovery Game" />
+    <meta name="twitter:description" content="Discover your next favorite read with Book Quest. An interactive game for all readers, from complete beginners to lifelong bookworms." />
+    <meta name="twitter:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/3kEWpNGaVMVXuDvbNQ2kfYOe2yX2/social-images/social-1775156651904-book_quest_pic.webp" />
+
+    <!-- 4. JSON-LD Schema Markup (Tells Google this is an Interactive Web Application) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Book Quest",
+      "url": "https://bookquestgame.vercel.app",
+      "description": "An interactive book discovery game designed for readers of all levels to find and explore new books.",
+      "applicationCategory": "GameApplication, EducationalApplication",
+      "operatingSystem": "All"
+    }
+    </script>
+  </head>
 
   <body>
+    <!-- 5. Search Engine Fallback Container -->
+    <noscript>
+      <main style="padding: 20px; font-family: sans-serif; text-align: center;">
+        <h1>Book Quest</h1>
+        <p>An interactive web game designed to help you discover books. Perfect for beginners and lifelong readers alike.</p>
+        <p>Please enable JavaScript in your browser settings to launch the full interactive experience.</p>
+      </main>
+    </noscript>
+
+    <!-- React App Mount Point -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
