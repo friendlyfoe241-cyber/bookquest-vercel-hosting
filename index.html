@@ -3,53 +3,111 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    
-    <!-- 1. Primary SEO Tags -->
-    <title>Book Quest | Interactive Book Discovery Game</title>
-    <meta name="description" content="Discover your next favorite read with Book Quest. An interactive game for all readers, from complete beginners to lifelong bookworms." />
-    <meta name="author" content="Book Quest Team" />
-    <link rel="canonical" href="https://bookquestgame.vercel.app" />
+
+    <!-- Primary SEO -->
+    <title>BookQuest - Discover Books, Track Reading & Earn Achievements</title>
+
+    <meta
+      name="description"
+      content="BookQuest is a gamified reading platform where readers discover books, build libraries, earn achievements, track progress, and compete with friends."
+    />
+
+    <meta
+      name="keywords"
+      content="books, reading, book discovery, reading tracker, gamified reading, book recommendations, reading achievements, library management"
+    />
+
+    <meta name="author" content="BookQuest Team" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0f172a" />
+
+    <link rel="canonical" href="https://bookquestgame.vercel.app/" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
 
-    <!-- 2. Open Graph / Facebook Meta Tags -->
+    <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://bookquestgame.vercel.app" />
-    <meta property="og:title" content="Book Quest | Interactive Book Discovery Game" />
-    <meta property="og:description" content="Discover your next favorite read with Book Quest. An interactive game for all readers, from complete beginners to lifelong bookworms." />
-    <meta property="og:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/3kEWpNGaVMVXuDvbNQ2kfYOe2yX2/social-images/social-1775156651904-book_quest_pic.webp" />
+    <meta property="og:site_name" content="BookQuest" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://bookquestgame.vercel.app/" />
+    <meta
+      property="og:title"
+      content="BookQuest - Discover Books, Track Reading & Earn Achievements"
+    />
+    <meta
+      property="og:description"
+      content="BookQuest is a gamified reading platform where readers discover books, build libraries, earn achievements, track progress, and compete with friends."
+    />
+    <meta
+      property="og:image"
+      content="https://storage.googleapis.com/gpt-engineer-file-uploads/3kEWpNGaVMVXuDvbNQ2kfYOe2yX2/social-images/social-1775156651904-book_quest_pic.webp"
+    />
 
-    <!-- 3. Twitter Meta Tags -->
+    <!-- Twitter -->
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@Bookquest" />
-    <meta name="twitter:title" content="Book Quest | Interactive Book Discovery Game" />
-    <meta name="twitter:description" content="Discover your next favorite read with Book Quest. An interactive game for all readers, from complete beginners to lifelong bookworms." />
-    <meta name="twitter:image" content="https://storage.googleapis.com/gpt-engineer-file-uploads/3kEWpNGaVMVXuDvbNQ2kfYOe2yX2/social-images/social-1775156651904-book_quest_pic.webp" />
+    <meta
+      name="twitter:title"
+      content="BookQuest - Discover Books, Track Reading & Earn Achievements"
+    />
+    <meta
+      name="twitter:description"
+      content="BookQuest is a gamified reading platform where readers discover books, build libraries, earn achievements, track progress, and compete with friends."
+    />
+    <meta
+      name="twitter:image"
+      content="https://storage.googleapis.com/gpt-engineer-file-uploads/3kEWpNGaVMVXuDvbNQ2kfYOe2yX2/social-images/social-1775156651904-book_quest_pic.webp"
+    />
 
-    <!-- 4. JSON-LD Schema Markup (Tells Google this is an Interactive Web Application) -->
+    <!-- Structured Data: Web Application -->
     <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebApplication",
-      "name": "Book Quest",
-      "url": "https://bookquestgame.vercel.app",
-      "description": "An interactive book discovery game designed for readers of all levels to find and explore new books.",
-      "applicationCategory": "GameApplication, EducationalApplication",
-      "operatingSystem": "All"
-    }
+      {
+        "@context": "https://schema.org",
+        "@type": "WebApplication",
+        "name": "BookQuest",
+        "url": "https://bookquestgame.vercel.app/",
+        "description": "A gamified reading platform that helps users discover books, track reading progress, earn achievements, and connect with fellow readers.",
+        "applicationCategory": "EducationalApplication",
+        "operatingSystem": "Web",
+        "browserRequirements": "Requires JavaScript",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
+
+    <!-- Structured Data: Website -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "BookQuest",
+        "url": "https://bookquestgame.vercel.app/"
+      }
     </script>
   </head>
 
   <body>
-    <!-- 5. Search Engine Fallback Container -->
     <noscript>
-      <main style="padding: 20px; font-family: sans-serif; text-align: center;">
-        <h1>Book Quest</h1>
-        <p>An interactive web game designed to help you discover books. Perfect for beginners and lifelong readers alike.</p>
-        <p>Please enable JavaScript in your browser settings to launch the full interactive experience.</p>
+      <main
+        style="
+          padding: 20px;
+          font-family: sans-serif;
+          text-align: center;
+        "
+      >
+        <h1>BookQuest</h1>
+        <p>
+          BookQuest is a gamified reading platform where readers discover books,
+          track progress, earn achievements, and build their personal library.
+        </p>
+        <p>
+          Please enable JavaScript in your browser to access the full
+          BookQuest experience.
+        </p>
       </main>
     </noscript>
 
-    <!-- React App Mount Point -->
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
