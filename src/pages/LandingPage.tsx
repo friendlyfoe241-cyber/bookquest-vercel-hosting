@@ -382,6 +382,7 @@ const FeaturesSection = () => {
   );
 };
 
+
 const StatsSection = () => {
   const stats = [
     { value: "70K+", label: "Books Available" },
