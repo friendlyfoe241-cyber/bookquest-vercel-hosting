@@ -382,11 +382,12 @@ const FeaturesSection = () => {
   );
 };
 
+
 const StatsSection = () => {
   const stats = [
     { value: "70K+", label: "Books Available" },
-    { value: "Hundreds", label: "Happy Readers" },
-    { value: "Thousands", label: "Pages Read" },
+    { value: "100+", label: "Happy Readers" },
+    { value: "1000+", label: "Pages Read" },
   ];
 
   return (
