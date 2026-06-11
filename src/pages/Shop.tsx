@@ -1,11 +1,16 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
-import { ArrowLeft, ShoppingBag, Coins, Sparkles } from 'lucide-react';
+import { ArrowLeft, ShoppingBag, Coins, Sparkles, Palette } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { useCoinSync } from '@/hooks/useCoinSync';
+import { useApp } from '@/contexts/AppContext';
+
+function toThemeKey(name: string): string {
+  return name.toLowerCase().replace(/\s+/g, '-');
+}
 
 type Category = 'all' | 'theme' | 'avatar' | 'pet' | 'boost';
 
@@ -45,6 +50,7 @@ const Shop = () => {
   const [category, setCategory] = useState<Category>('all');
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const { settings, setActiveTheme } = useApp();
 
   useEffect(() => {
     loadShop();
@@ -101,6 +107,23 @@ const Shop = () => {
     setCoins(newCoins);
     setOwnedIds(prev => new Set([...prev, item.id]));
     toast.success(`Purchased ${item.name}! 🎉`);
+  };
+
+  const handleItemAction = async (item: ShopItem, e: React.MouseEvent) => {
+    // If owned theme: equip/unequip
+    if (item.category === 'theme' && ownedIds.has(item.id)) {
+      e.stopPropagation();
+      const key = toThemeKey(item.name);
+      if (settings.activeTheme === key) {
+        setActiveTheme(null);
+        toast.success('Theme removed');
+      } else {
+        setActiveTheme(key);
+        toast.success(`${item.name} theme equipped! ✨`);
+      }
+      return;
+    }
+    purchaseItem(item);
   };
 
   const filtered = category === 'all' ? items : items.filter(i => i.category === category);
@@ -167,17 +190,21 @@ const Shop = () => {
           >
             {filtered.map((item, i) => {
               const owned = ownedIds.has(item.id);
+              const isTheme = item.category === 'theme';
+              const themeKey = toThemeKey(item.name);
+              const isActive = isTheme && settings.activeTheme === themeKey;
               return (
                 <motion.button
                   key={item.id}
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: i * 0.05 }}
-                  onClick={() => purchaseItem(item)}
-                  disabled={owned}
+                  onClick={(e) => handleItemAction(item, e)}
                   className={`relative p-4 rounded-2xl border text-left transition-all ${
-                    owned
-                      ? 'bg-primary/5 border-primary/20 opacity-70'
+                    isActive
+                      ? 'bg-primary/10 border-primary/50 ring-2 ring-primary/30'
+                      : owned
+                      ? 'bg-primary/5 border-primary/20'
                       : 'bg-card border-border hover:border-primary/30 hover:shadow-md active:scale-95'
                   }`}
                 >
@@ -188,7 +215,15 @@ const Shop = () => {
                     <Badge variant="secondary" className={`text-[10px] ${RARITY_COLORS[item.rarity] || ''}`}>
                       {item.rarity}
                     </Badge>
-                    {owned ? (
+                    {isActive ? (
+                      <span className="flex items-center gap-1 text-xs font-semibold text-primary">
+                        <Palette className="w-3 h-3" /> Active
+                      </span>
+                    ) : owned && isTheme ? (
+                      <span className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
+                        Tap to equip
+                      </span>
+                    ) : owned ? (
                       <span className="text-xs font-semibold text-primary">Owned ✓</span>
                     ) : (
                       <span className="flex items-center gap-1 text-xs font-bold">
@@ -202,6 +237,13 @@ const Shop = () => {
                         <Sparkles className="w-2.5 h-2.5 mr-0.5" />
                         {item.xp_boost}x XP
                       </Badge>
+                    </div>
+                  )}
+                  {isActive && (
+                    <div className="absolute top-2 right-2">
+                      <span className="text-[9px] bg-primary text-primary-foreground rounded-full px-1.5 py-0.5 font-bold">
+                        ON
+                      </span>
                     </div>
                   )}
                 </motion.button>

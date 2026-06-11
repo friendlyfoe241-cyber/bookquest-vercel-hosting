@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp } from "@/contexts/AppContext";
+import ThemeEffects from "@/components/ThemeEffects";
 import Welcome from "./pages/Welcome";
 import Auth from "./pages/Auth";
 import Discovery from "./pages/Discovery";
@@ -64,6 +65,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AppProvider>
+          <ThemeEffects />
           <AppRoutes />
         </AppProvider>
       </BrowserRouter>

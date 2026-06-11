@@ -65,6 +65,7 @@ export interface AppSettings {
   accentColor: string;
   onboarded: boolean;
   ageGroup: AgeGroup;
+  activeTheme?: string; // shop item name key e.g. "ocean-breeze"
 }
 
 export type AccentColor = {
