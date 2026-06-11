@@ -23,7 +23,10 @@ const MONO_ICONS = {
   ),
   users: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-full h-full">
-      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 7a4 4 0 1 0 0-8 4 4 0 0 0 0 8z M22 21v-2a4 4 0 0 0-3-3.87 M16 3.13a4 4 0 0 1 0 7.75" />
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
   compass: (
@@ -360,9 +363,9 @@ const FeaturesSection = () => {
             >
               <div className={`relative p-8 rounded-3xl backdrop-blur-sm border-2 ${colorClasses[feature.color].border} ${colorClasses[feature.color].bg} transition-all duration-500 hover:scale-[1.02] hover:shadow-xl hover:shadow-purple-500/10`}>
                 {/* Icon container */}
-                <div className="relative w-20 h-20 mb-6">
+                <div className="relative w-20 h-20 mb-6 overflow-visible">
                   <div className={`absolute inset-0 rounded-2xl ${colorClasses[feature.color].bg} group-hover:scale-110 transition-transform`} />
-                  <div className={`relative w-full h-full p-4 ${colorClasses[feature.color].icon} group-hover:scale-110 transition-transform`}>
+                  <div className={`relative w-full h-full p-5 ${colorClasses[feature.color].icon} group-hover:scale-110 transition-transform flex items-center justify-center`}>
                     {feature.icon}
                   </div>
                 </div>
