@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp } from "@/contexts/AppContext";
 import ThemeEffects from "@/components/ThemeEffects";
+import LandingPage from "./pages/LandingPage";
 import Welcome from "./pages/Welcome";
 import Auth from "./pages/Auth";
 import Discovery from "./pages/Discovery";
@@ -30,16 +31,20 @@ function AppRoutes() {
   if (!settings.onboarded) {
     return (
       <Routes>
+        <Route path="/landing" element={<LandingPage />} />
+        <Route path="/welcome" element={<Welcome />} />
         <Route path="/auth" element={<Auth />} />
-        <Route path="*" element={<Welcome />} />
+        <Route path="*" element={<LandingPage />} />
       </Routes>
     );
   }
 
   return (
     <Routes>
+      <Route path="/landing" element={<LandingPage />} />
       <Route path="/" element={<Navigate to="/foryou" replace />} />
       <Route path="/auth" element={<Auth />} />
+      <Route path="/welcome" element={<Welcome />} />
       <Route path="/discover" element={<Discovery />} />
       <Route path="/foryou" element={<ForYou />} />
       <Route path="/read/:bookId" element={<Reader />} />
