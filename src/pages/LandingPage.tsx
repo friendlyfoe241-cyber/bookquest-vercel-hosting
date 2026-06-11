@@ -296,7 +296,7 @@ const FeaturesSection = () => {
     emerald: {
       bg: "bg-emerald-500/10",
       border: "border-emerald-500/30 hover:border-emerald-400",
-      icon: "text-emerald-400",
+      icon: "text-emerald-350",
     },
     violet: {
       bg: "bg-violet-500/10",
