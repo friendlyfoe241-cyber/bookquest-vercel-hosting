@@ -384,9 +384,9 @@ const FeaturesSection = () => {
 
 const StatsSection = () => {
   const stats = [
-    { value: "10K+", label: "Books Available" },
-    { value: "50K+", label: "Happy Readers" },
-    { value: "1M+", label: "Pages Read" },
+    { value: "70K+", label: "Books Available" },
+    { value: "Hundreds", label: "Happy Readers" },
+    { value: "Thousands", label: "Pages Read" },
   ];
 
   return (
