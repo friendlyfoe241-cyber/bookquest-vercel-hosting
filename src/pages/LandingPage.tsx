@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import { ArrowRight, BookOpen, Sparkles, ChevronDown } from 'lucide-react';
+import OpenBook3D from '@/components/ScrollBook3D';
 
 const MONO_ICONS = {
   book: (
@@ -254,6 +255,37 @@ const HeroSection = () => {
         </motion.div>
       </div>
     </motion.section>
+  );
+};
+
+const BookSection = () => {
+  return (
+    <section className="relative py-20 px-4 bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 overflow-hidden">
+      {/* Background decorations */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl" />
+      </div>
+
+      {/* Section title */}
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true }}
+        transition={{ duration: 0.6 }}
+        className="text-center mb-8 relative z-10"
+      >
+        <h2 className="font-display text-3xl md:text-4xl mb-4 bg-gradient-to-r from-blue-400 via-purple-400 to-emerald-400 bg-clip-text text-transparent">
+          Flip Through Our Story
+        </h2>
+        <p className="text-slate-400 text-lg">
+          Scroll down to discover what awaits you
+        </p>
+      </motion.div>
+
+      {/* 3D Book */}
+      <OpenBook3D />
+    </section>
   );
 };
 
@@ -545,6 +577,7 @@ const LandingPage = () => {
             exit={{ opacity: 0 }}
           >
             <HeroSection />
+            <BookSection />
             <FeaturesSection />
             <StatsSection />
             <CTASection />
